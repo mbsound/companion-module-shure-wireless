@@ -116,11 +116,31 @@ class ShureWirelessInstance extends InstanceBase {
 		let value = String(await context.parseVariablesInString(event.options[option])).trim()
 		let err = null
 
-		if (validate?.regex && !validate.regex.test(value)) {
+		let regex = null
+		let range = null
+
+		if (validate instanceof RegExp) {
+			regex = validate
+		} else if (typeof validate === 'string') {
+			let match = validate.match(/^\/(.*)\/([dgimsuy]*)$/)
+			regex = match ? new RegExp(match[1], match[2]) : new RegExp(validate)
+		} else if (validate && typeof validate === 'object') {
+			if (validate.range) {
+				range = validate.range
+			}
+			if (validate.regex instanceof RegExp) {
+				regex = validate.regex
+			} else if (typeof validate.regex === 'string') {
+				let match = validate.regex.match(/^\/(.*)\/([dgimsuy]*)$/)
+				regex = match ? new RegExp(match[1], match[2]) : new RegExp(validate.regex)
+			}
+		}
+
+		if (regex && !regex.test(value)) {
 			err = [event.controlId, event.actionId, option].join(' → ')
-		} else if (validate?.range) {
+		} else if (range) {
 			value = parseInt(value)
-			if (value < validate.min || value > validate.max) {
+			if (isNaN(value) || value < range.min || value > range.max) {
 				err = [event.controlId, event.actionId, option, 'Out of range'].join(' → ')
 			}
 		}
@@ -290,6 +310,37 @@ class ShureWirelessInstance extends InstanceBase {
 				let cmd = '< GET 0 ALL >'
 				this.socket.send(cmd)
 
+				if (this.model.family == 'ad') {
+					// Query slots on channels so ShowLink slot states and RF outputs are populated immediately
+					for (let i = 1; i <= this.model.channels; i++) {
+						for (let s = 1; s <= (this.model.slots || 8); s++) {
+							this.socket.send(`< GET ${i} SLOT_STATUS ${s} >`)
+							this.socket.send(`< GET ${i} SLOT_RF_OUTPUT ${s} >`)
+						}
+					}
+				}
+
+				if (this.model.family == 'ulx') {
+					this.socket.send('< GET SCAN_LOCK >')
+					this.socket.send('< GET SYNC_LOCK >')
+					this.socket.send('< GET NA_DEVICE_NAME >')
+					for (let i = 1; i <= this.model.channels; i++) {
+						this.socket.send(`< GET ${i} NA_CHAN_NAME >`)
+						this.socket.send(`< GET ${i} TX_FW_VER >`)
+					}
+				}
+
+				if (this.model.family == 'slxplus') {
+					this.socket.send('< GET NA_DEVICE_NAME >')
+					this.socket.send('< GET APP_CONN_ENABLED >')
+					for (let i = 1; i <= this.model.channels; i++) {
+						this.socket.send(`< GET ${i} LINK_STATUS >`)
+						this.socket.send(`< GET ${i} LINK_TX_MODEL >`)
+						this.socket.send(`< GET ${i} LINK_TX_BATT_MINS >`)
+						this.socket.send(`< GET ${i} NA_CHAN_NAME >`)
+					}
+				}
+
 				if (this.config.meteringOn === true) {
 					cmd = `< SET 0 METER_RATE ${this.config.meteringInterval} >`
 					this.socket.send(cmd)
@@ -378,6 +429,7 @@ class ShureWirelessInstance extends InstanceBase {
 						this.api.parseADSample(commandNum, command)
 						break
 					case 'slx':
+					case 'slxplus':
 						this.api.parseSLXSample(commandNum, command)
 						break
 				}

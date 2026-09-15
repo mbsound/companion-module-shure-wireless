@@ -22,9 +22,10 @@ export default class WirelessApi {
 		this.icons = new Icons(instance)
 
 		//qlx-d [FW_VER,DEVICE_ID,ENCRYPTION]
-		//ulx-d [FW_VER,DEVICE_ID,ENCRYPTION,AUDIO_SUMMING_MODE,FREQUENCY_DIVERSITY_MODE,HIGH_DENSITY,FLASH]
+		//ulx-d [FW_VER,DEVICE_ID,ENCRYPTION,AUDIO_SUMMING_MODE,FREQUENCY_DIVERSITY_MODE,HIGH_DENSITY,FLASH,SCAN_LOCK,SYNC_LOCK,NA_DEVICE_NAME]
 		//ad    [FW_VER,DEVICE_ID,ENCRYPTION_MODE,MODEL,QUADVERSITY_MODE,RF_BAND,TRANSMISSION_MODE,FLASH]
 		//slx-d [FW_VER,DEVICE_ID,RF_BAND,MODEL,LOCK_STATUS,FLASH]
+		//slx+  [FW_VER,DEVICE_ID,RF_BAND,MODEL,LOCK_STATUS,FLASH,ENCRYPTION_MODE,NA_DEVICE_NAME,APP_CONN_ENABLED]
 		this.receiver = {
 			firmwareVersion: '', // (ULX|QLX) 18 | (AD|SLX) 24
 			deviceId: '', // (ULX|QLX|SLX) 8 | (AD) 31
@@ -37,6 +38,10 @@ export default class WirelessApi {
 			model: '', // (AD|SLX) 32
 			rfBand: '', // (AD|SLX) 8
 			lockStatus: 'OFF', // (SLX) OFF - MENU - ALL
+			scanLock: 'OFF', // (ULX) OFF - ON
+			syncLock: 'OFF', // (ULX) OFF - ON
+			naDeviceName: '', // (ULX|SLXplus) Dante Device Name
+			appConnEnabled: 'OFF', // (SLXplus) OFF - ON
 		}
 		this.channels = []
 	}
@@ -131,6 +136,13 @@ export default class WirelessApi {
 				batteryTempF: 255, // (ULX|QLX|AD:TX_BATT_TEMP_F) +40 255=UNKN
 				batteryTempC: 255, // (ULX|QLX|AD:TX_BATT_TEMP_C)  +40 255=UNKN
 				batteryType: 'Unknown', // (ULX|QLX|AD:TX_BATT_TYPE) ALKA - LION - LITH - NIMH - UNKN
+				txRfOutput: 'RF_ON', // (AD) RF_ON - RF_MUTE - Unknown
+				linkStatus: 'EMPTY', // (SLXplus) EMPTY - LINKED.INACTIVE - LINKED.ACTIVE
+				linkTxModel: 'Unknown', // (SLXplus)
+				linkTxBattMins: 65535, // (SLXplus)
+				linkTxBattRuntime: 'Unknown', // (SLXplus)
+				naChanName: '', // (ULX|SLXplus) Dante Channel Name
+				txFwVer: '', // (ULX) Transmitter Firmware Version
 			}
 		}
 
@@ -210,6 +222,7 @@ export default class WirelessApi {
 				)
 				break
 			case 'slx':
+			case 'slxplus':
 				icon = this.icons.getSLXStatus(image, audioLED, rfBitmapA, batteryBars, opt.barlevel)
 				break
 			case 'ad':
@@ -318,8 +331,8 @@ export default class WirelessApi {
 			if (this.receiver.quadversityMode == 'ON') {
 				channel.rfLevelC = parseInt(sample[13]) - 120
 				channel.rfBitmapC = parseInt(sample[12])
-				channel.rfLevelC = parseInt(sample[15]) - 120
-				channel.rfBitmapC = parseInt(sample[14])
+				channel.rfLevelD = parseInt(sample[15]) - 120
+				channel.rfBitmapD = parseInt(sample[14])
 				channel.antennaC = sample[7].substr(2, 1)
 				channel.antennaD = sample[7].substr(3, 1)
 				this.instance.setVariableValues({
@@ -327,6 +340,8 @@ export default class WirelessApi {
 					[`${prefix}rf_level_d`]: channel.rfLevelD + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
 				})
 			}
+
+			this.instance.checkFeedbacks('audio_peak_clip', 'signal_quality')
 		}
 	}
 
@@ -387,6 +402,8 @@ export default class WirelessApi {
 			[`${prefix}audio_level_peak`]:
 				channel.audioLevelPeak + (this.instance.config.variableFormat == 'units' ? ' dBFS' : ''),
 		})
+
+		this.instance.checkFeedbacks('audio_peak_clip')
 	}
 
 	/**
@@ -460,6 +477,8 @@ export default class WirelessApi {
 			[`${prefix}rf_level`]: channel.rfLevel + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
 			[`${prefix}audio_level`]: channel.audioLevel + (this.instance.config.variableFormat == 'units' ? ' dBFS' : ''),
 		})
+
+		this.instance.checkFeedbacks('audio_peak_clip')
 	}
 
 	/**
@@ -543,6 +562,7 @@ export default class WirelessApi {
 			}
 			channel.encryptionStatus = variable
 			this.instance.setVariableValues({ [`${prefix}encryption_status`]: variable })
+			this.instance.checkFeedbacks('encryption_warning')
 		} else if (key == 'RF_INT_DET' || key == 'INTERFERENCE_STATUS') {
 			switch (value) {
 				case 'CRITICAL':
@@ -564,12 +584,15 @@ export default class WirelessApi {
 		} else if (key == 'AUDIO_OUT_LVL_SWITCH') {
 			channel.audioOutLevelSwitch = value
 			this.instance.setVariableValues({ [`${prefix}audio_out_lvl_switch`]: value })
+			this.instance.checkFeedbacks('audio_out_lvl_switch')
 		} else if (key == 'UNREGISTERED_TX_STATUS') {
 			channel.unregisteredTxStatus = value
 			this.instance.setVariableValues({ [`${prefix}unregistered_tx_status`]: value })
+			this.instance.checkFeedbacks('unregistered_tx')
 		} else if (key == 'FD_MODE') {
 			channel.fdMode = value
 			this.instance.setVariableValues({ [`${prefix}fd_mode`]: value })
+			this.instance.checkFeedbacks('fd_mode_active')
 		} else if (key == 'TX_TYPE' || key == 'TX_MODEL') {
 			channel.txType = value
 			this.instance.setVariableValues({ [`${prefix}tx_model`]: value })
@@ -674,6 +697,7 @@ export default class WirelessApi {
 			}
 			channel.txTalkSwitch = variable
 			this.instance.setVariableValues({ [`${prefix}tx_talk_switch`]: variable })
+			this.instance.checkFeedbacks('talk_switch_pressed')
 		} else if (key == 'TX_OFFSET') {
 			channel.txOffset = parseInt(value)
 			if (channel.txOffset == 255) {
@@ -798,6 +822,39 @@ export default class WirelessApi {
 		} else if (key.match(/BATT_TYPE/)) {
 			channel.batteryType = value
 			this.instance.setVariableValues({ [`${prefix}battery_type`]: value })
+		} else if (key == 'NA_CHAN_NAME') {
+			channel.naChanName = value.replace('{', '').replace('}', '').trim()
+			this.instance.setVariableValues({ [`${prefix}na_chan_name`]: channel.naChanName })
+		} else if (key == 'TX_FW_VER') {
+			channel.txFwVer = value.replace('{', '').replace('}', '').trim()
+			this.instance.setVariableValues({ [`${prefix}tx_fw_ver`]: channel.txFwVer })
+		} else if (key == 'LINK_STATUS') {
+			channel.linkStatus = value
+			this.instance.setVariableValues({ [`${prefix}link_status`]: value })
+			this.instance.checkFeedbacks('slx_link_status')
+		} else if (key == 'LINK_TX_MODEL') {
+			channel.linkTxModel = value
+			this.instance.setVariableValues({ [`${prefix}link_tx_model`]: value })
+		} else if (key == 'LINK_TX_BATT_MINS') {
+			channel.linkTxBattMins = parseInt(value)
+			if (channel.linkTxBattMins == 65535) {
+				variable = 'Unknown'
+			} else if (channel.linkTxBattMins == 65534) {
+				variable = 'Calculating'
+			} else if (channel.linkTxBattMins == 65533) {
+				variable = 'Error'
+			} else {
+				let mins = channel.linkTxBattMins
+				let h = Math.floor(mins / 60)
+				let m = mins % 60
+				m = m < 10 ? '0' + m : m
+				variable = `${h}:${m}`
+			}
+			channel.linkTxBattRuntime = variable
+			this.instance.setVariableValues({
+				[`${prefix}link_tx_batt_mins`]: channel.linkTxBattMins,
+				[`${prefix}link_tx_batt_runtime`]: variable,
+			})
 		}
 	}
 
@@ -823,9 +880,11 @@ export default class WirelessApi {
 		} else if (key == 'FREQUENCY_DIVERSITY_MODE') {
 			this.receiver.frequencyDiversity = value
 			this.instance.setVariableValues({ frequency_diversity_mode: value })
+			this.instance.checkFeedbacks('frequency_diversity_mode')
 		} else if (key == 'AUDIO_SUMMING_MODE') {
 			this.receiver.audioSumming = value
 			this.instance.setVariableValues({ audio_summing_mode: value })
+			this.instance.checkFeedbacks('audio_summing_mode')
 		} else if (key == 'HIGH_DENSITY' || key == 'TRANSMISSION_MODE') {
 			// changed from: (key =='HIGH_DENSITY' || id == 'TRANSMISSION_MODE') in order to try fix the "Reference error: id is not defined" error (ticket #5 and #6)
 
@@ -837,6 +896,7 @@ export default class WirelessApi {
 
 			this.receiver.highDensity = value
 			this.instance.setVariableValues({ high_density_mode: value })
+			this.instance.checkFeedbacks('high_density_mode', 'transmission_mode_hd')
 		} else if (key.match(/ENCRYPTION/)) {
 			if (value == 'INACTIVE') {
 				value = 'OFF'
@@ -851,6 +911,7 @@ export default class WirelessApi {
 		} else if (key == 'QUADVERSITY_MODE') {
 			this.receiver.quadversityMode = value
 			this.instance.setVariableValues({ quadversity_mode: value })
+			this.instance.checkFeedbacks('quadversity_active')
 		} else if (key == 'MODEL') {
 			this.receiver.model = value
 			this.instance.setVariableValues({ model: value })
@@ -860,6 +921,20 @@ export default class WirelessApi {
 		} else if (key == 'LOCK_STATUS') {
 			this.receiver.lockStatus = value
 			this.instance.setVariableValues({ lock_status: value })
+		} else if (key == 'SCAN_LOCK') {
+			this.receiver.scanLock = value
+			this.instance.setVariableValues({ scan_lock: value })
+			this.instance.checkFeedbacks('scan_lock_active')
+		} else if (key == 'SYNC_LOCK') {
+			this.receiver.syncLock = value
+			this.instance.setVariableValues({ sync_lock: value })
+			this.instance.checkFeedbacks('sync_lock_active')
+		} else if (key == 'NA_DEVICE_NAME') {
+			this.receiver.naDeviceName = value.replace('{', '').replace('}', '').trim()
+			this.instance.setVariableValues({ na_device_name: this.receiver.naDeviceName })
+		} else if (key == 'APP_CONN_ENABLED') {
+			this.receiver.appConnEnabled = value
+			this.instance.setVariableValues({ app_conn_enabled: value })
 		}
 	}
 
@@ -956,6 +1031,18 @@ export default class WirelessApi {
 				}
 				this.instance.setVariableValues({ [`${prefix}rf_output`]: variable })
 				this.instance.checkFeedbacks('slot_rf_output')
+
+				let ch = this.getChannel(channel)
+				if (
+					slot.status == 'STANDARD' ||
+					slot.status == 'LINKED.ACTIVE' ||
+					(ch.txDeviceId != '' && ch.txDeviceId == slot.txDeviceId) ||
+					parseInt(id) == 1
+				) {
+					ch.txRfOutput = value
+					this.instance.setVariableValues({ [`ch_${channel}_tx_rf_output`]: variable })
+					this.instance.checkFeedbacks('channel_rf_muted')
+				}
 				break
 			case 'SLOT_BATT_BARS':
 				slot.batteryBars = parseInt(value)

@@ -18,6 +18,10 @@ export function updateVariables() {
 			variables.push({ variableId: `${prefix}_audio_mute`, name: `Channel ${i} Audio Mute` })
 		}
 
+		if (this.model.family == 'ad') {
+			variables.push({ variableId: `${prefix}_tx_rf_output`, name: `Channel ${i} Transmitter RF Output` })
+		}
+
 		variables.push({ variableId: `${prefix}_group_chan`, name: `Channel ${i} Group & Channel` })
 		variables.push({ variableId: `${prefix}_frequency`, name: `Channel ${i} Frequency` })
 
@@ -25,12 +29,33 @@ export function updateVariables() {
 			variables.push({ variableId: `${prefix}_encryption_status`, name: `Channel ${i} Encryption Status` })
 		}
 
-		if (this.model.family == 'ad' || this.model.family == 'ulx') {
+		if (this.model.family == 'ad' || this.model.family == 'ulx' || this.model.family == 'slxplus') {
 			variables.push({ variableId: `${prefix}_interference_status`, name: `Channel ${i} Interference Status` })
 		}
 
-		if (this.model.family == 'slx') {
+		if (this.model.family == 'slx' || this.model.family == 'slxplus') {
 			variables.push({ variableId: `${prefix}_audio_out_lvl_switch`, name: `Channel ${i} Audio Out Level Switch` })
+		}
+
+		if (this.model.family == 'slxplus') {
+			variables.push({ variableId: `${prefix}_link_status`, name: `Channel ${i} Linked Transmitter Status` })
+			variables.push({ variableId: `${prefix}_link_tx_model`, name: `Channel ${i} Linked Transmitter Model` })
+			variables.push({
+				variableId: `${prefix}_link_tx_batt_mins`,
+				name: `Channel ${i} Linked Transmitter Battery Mins`,
+			})
+			variables.push({
+				variableId: `${prefix}_link_tx_batt_runtime`,
+				name: `Channel ${i} Linked Transmitter Battery Runtime`,
+			})
+		}
+
+		if (this.model.family == 'ulx' || this.model.family == 'slxplus') {
+			variables.push({ variableId: `${prefix}_na_chan_name`, name: `Channel ${i} Dante Channel Name` })
+		}
+
+		if (this.model.family == 'ulx') {
+			variables.push({ variableId: `${prefix}_tx_fw_ver`, name: `Channel ${i} Transmitter Firmware Version` })
 		}
 
 		if (this.model.family == 'ad') {
@@ -41,7 +66,7 @@ export function updateVariables() {
 			variables.push({ variableId: `${prefix}_interference_status2`, name: `Channel ${i} Interference Status 2` })
 		}
 
-		if (this.model.family != 'slx') {
+		if (this.model.family != 'slx' && this.model.family != 'slxplus') {
 			variables.push({ variableId: `${prefix}_antenna`, name: `Channel ${i} Antenna Status` })
 		}
 
@@ -53,7 +78,7 @@ export function updateVariables() {
 			variables.push({ variableId: `${prefix}_rf_level_d`, name: `Channel ${i} RF Level D` })
 			variables.push({ variableId: `${prefix}_audio_level`, name: `Channel ${i} Audio Level RMS` })
 			variables.push({ variableId: `${prefix}_audio_level_peak`, name: `Channel ${i} Audio Level Peak` })
-		} else if (this.model.family == 'slx') {
+		} else if (this.model.family == 'slx' || this.model.family == 'slxplus') {
 			variables.push({ variableId: `${prefix}_rf_level`, name: `Channel ${i} RF Level` })
 			variables.push({ variableId: `${prefix}_audio_level`, name: `Channel ${i} Audio Level RMS` })
 			variables.push({ variableId: `${prefix}_audio_level_peak`, name: `Channel ${i} Audio Level Peak` })
@@ -64,7 +89,7 @@ export function updateVariables() {
 
 		variables.push({ variableId: `${prefix}_tx_model`, name: `Channel ${i} Transmitter Model` })
 
-		if (this.model.family != 'slx') {
+		if (this.model.family != 'slx' && this.model.family != 'slxplus') {
 			variables.push({ variableId: `${prefix}_tx_device_id`, name: `Channel ${i} Transmitter Device ID` })
 			variables.push({ variableId: `${prefix}_tx_offset`, name: `Channel ${i} Transmitter Offset` })
 		}
@@ -74,7 +99,7 @@ export function updateVariables() {
 			variables.push({ variableId: `${prefix}_tx_polarity`, name: `Channel ${i} Transmitter Polarity` })
 		}
 
-		if (this.model.family != 'slx') {
+		if (this.model.family != 'slx' && this.model.family != 'slxplus') {
 			variables.push({ variableId: `${prefix}_tx_power_level`, name: `Channel ${i} Transmitter Power Level` })
 			variables.push({ variableId: `${prefix}_tx_mute_status`, name: `Channel ${i} Transmitter Mute Status` })
 			variables.push({ variableId: `${prefix}_tx_lock`, name: `Channel ${i} Transmitter Lock` })
@@ -86,11 +111,11 @@ export function updateVariables() {
 			variables.push({ variableId: `${prefix}_tx_power_mode`, name: `Channel ${i} Transmitter Power Mode` })
 		}
 
-		if (this.model.family != 'ad' && this.model.family != 'slx') {
+		if (this.model.family != 'ad' && this.model.family != 'slx' && this.model.family != 'slxplus') {
 			variables.push({ variableId: `${prefix}_tx_power_source`, name: `Channel ${i} Transmitter Power Source` })
 		}
 
-		if (this.model.family != 'slx') {
+		if (this.model.family != 'slx' && this.model.family != 'slxplus') {
 			variables.push({ variableId: `${prefix}_tx_talk_switch`, name: `Channel ${i} Transmitter Mute Button Status` })
 		}
 
@@ -110,7 +135,7 @@ export function updateVariables() {
 
 		variables.push({ variableId: `${prefix}_battery_runtime`, name: `Channel ${i} Battery Run Time` })
 
-		if (this.model.family != 'slx') {
+		if (this.model.family != 'slx' && this.model.family != 'slxplus') {
 			variables.push({ variableId: `${prefix}_battery_temp_f`, name: `Channel ${i} Battery Temperature (F)` })
 			variables.push({ variableId: `${prefix}_battery_temp_c`, name: `Channel ${i} Battery Temperature (C)` })
 			variables.push({ variableId: `${prefix}_battery_type`, name: `Channel ${i} Battery Type` })
@@ -152,7 +177,7 @@ export function updateVariables() {
 		variables.push({ variableId: 'high_density_mode', name: 'High Density Mode' })
 	}
 
-	if (this.model.family == 'ad' || this.model.family == 'slx') {
+	if (this.model.family == 'ad' || this.model.family == 'slx' || this.model.family == 'slxplus') {
 		variables.push({ variableId: 'model', name: 'Receiver Model' })
 		variables.push({ variableId: 'rf_band', name: 'RF Band' })
 	}
@@ -167,8 +192,21 @@ export function updateVariables() {
 
 	variables.push({ variableId: 'firmware_version', name: 'Firmware Version' })
 
-	if (this.model.family == 'slx') {
+	if (this.model.family == 'slx' || this.model.family == 'slxplus') {
 		variables.push({ variableId: 'lock_status', name: 'Lock Status' })
+	}
+
+	if (this.model.family == 'ulx') {
+		variables.push({ variableId: 'scan_lock', name: 'Scan Lock' })
+		variables.push({ variableId: 'sync_lock', name: 'Sync Lock' })
+	}
+
+	if (this.model.family == 'ulx' || this.model.family == 'slxplus') {
+		variables.push({ variableId: 'na_device_name', name: 'Dante Device Name' })
+	}
+
+	if (this.model.family == 'slxplus') {
+		variables.push({ variableId: 'app_conn_enabled', name: 'App Connection Enabled' })
 	}
 
 	this.setVariableDefinitions(variables)

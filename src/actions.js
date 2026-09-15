@@ -23,6 +23,31 @@ export function updateActions() {
 		},
 	}
 
+	actions['set_device_id'] = {
+		name: 'Set device ID / receiver name',
+		options: [Fields.DeviceId],
+		callback: async (event, context) => {
+			let name = await this.parseActionOption(event, 'name', context, Regex.Name)
+			if (name) {
+				this.sendCommand(`SET DEVICE_ID {${name}}`)
+			}
+		},
+	}
+
+	actions['set_group_chan'] = {
+		name: 'Set Group and Channel',
+		options: [this.CHANNELS_FIELD, Fields.Group, Fields.ChannelNum],
+		callback: async (event, context) => {
+			const options = event.options
+			let group = await this.parseActionOption(event, 'group', context)
+			let channel = await this.parseActionOption(event, 'channel_num', context)
+			if (group && channel) {
+				let cmd = this.model.family === 'ulx' || this.model.family === 'qlx' ? 'GROUP_CHAN' : 'GROUP_CHANNEL'
+				this.sendCommand(`SET ${options.channel} ${cmd} ${group},${channel}`)
+			}
+		},
+	}
+
 	if (this.model.family == 'ulx' || this.model.family == 'ad') {
 		actions['channel_mute'] = {
 			name: 'Mute or unmute channel',
@@ -79,7 +104,6 @@ export function updateActions() {
 			if (freq) {
 				this.sendCommand(`SET ${options.channel} FREQUENCY ${freq.replace('.', '')}`)
 			}
-			// this.sendCommand(`SET ${options.channel} FREQUENCY ${options.value.replace('.', '')}`)
 		},
 	}
 
@@ -94,7 +118,7 @@ export function updateActions() {
 		}
 	}
 
-	if (this.model.family == 'ad' || this.model.family == 'slx') {
+	if (this.model.family == 'ad' || this.model.family == 'slx' || this.model.family == 'slxplus') {
 		actions['flash_channel'] = {
 			name: 'Flash lights on receiver channel',
 			tooltip: 'It will automatically turn off after 60 seconds',
@@ -106,20 +130,229 @@ export function updateActions() {
 	}
 
 	if (this.model.family == 'ad') {
+		actions['channel_rf_mute'] = {
+			name: 'Mute or unmute channel RF output (ADX)',
+			tooltip: 'Remotely mutes or unmutes transmitter RF output via ShowLink for the selected channel',
+			options: [this.CHANNELS_A_FIELD, Fields.RfOutput],
+			callback: async ({ options }) => {
+				let onoff = options.onoff
+				let chNum = parseInt(options.channel)
+				if (onoff === 'TOGGLE') {
+					let current = chNum === 0 ? this.api.getChannel(1).txRfOutput : this.api.getChannel(chNum).txRfOutput
+					onoff = current === 'RF_MUTE' ? 'RF_ON' : 'RF_MUTE'
+				}
+				// In Axient Digital, slot 0 addresses all slots for the specified channel
+				this.sendCommand(`SET ${options.channel} SLOT_RF_OUTPUT 0 ${onoff}`)
+			},
+		}
+
 		actions['slot_rf_output'] = {
 			name: 'Set slot RF output (ADX)',
 			options: [this.SLOTS_A_FIELD, Fields.RfOutput],
 			callback: async ({ options }) => {
 				let slot = options.slot.split(':')
-				this.sendCommand(`SET ${slot[0]} SLOT_RF_OUTPUT ${slot[1]} ${options.onoff}`)
+				let onoff = options.onoff
+				if (onoff === 'TOGGLE') {
+					let chNum = parseInt(slot[0])
+					let slotNum = parseInt(slot[1])
+					let current = this.api.getSlot(chNum === 0 ? 1 : chNum, slotNum === 0 ? 1 : slotNum).txRfOutput
+					onoff = current === 'RF_MUTE' ? 'RF_ON' : 'RF_MUTE'
+				}
+				this.sendCommand(`SET ${slot[0]} SLOT_RF_OUTPUT ${slot[1]} ${onoff}`)
 			},
 		}
+
 		actions['slot_rf_power'] = {
 			name: 'Set slot RF power level (ADX)',
 			options: [this.SLOTS_A_FIELD, Fields.RfPower],
 			callback: async ({ options }) => {
 				let slot = options.slot.split(':')
 				this.sendCommand(`SET ${slot[0]} SLOT_RF_POWER_MODE ${slot[1]} ${options.power}`)
+			},
+		}
+
+		actions['slot_offset'] = {
+			name: 'Set slot audio offset (ADX)',
+			options: [this.SLOTS_FIELD, Fields.SlotOffsetSet],
+			callback: async (event, context) => {
+				const options = event.options
+				let offset = await this.parseActionOption(event, 'offset', context)
+				if (offset !== null && offset !== undefined) {
+					let slot = options.slot.split(':')
+					let val = parseInt(offset) + 12
+					this.sendCommand(`SET ${slot[0]} SLOT_OFFSET ${slot[1]} ${val}`)
+				}
+			},
+		}
+
+		actions['slot_offset_inc'] = {
+			name: 'Increase slot audio offset (ADX)',
+			options: [this.SLOTS_FIELD, Fields.SlotOffsetInc],
+			callback: async (event, context) => {
+				const options = event.options
+				let inc = await this.parseActionOption(event, 'offset', context)
+				if (inc) {
+					let slot = options.slot.split(':')
+					this.sendCommand(`SET ${slot[0]} SLOT_OFFSET ${slot[1]} INC ${inc}`)
+				}
+			},
+		}
+
+		actions['slot_offset_dec'] = {
+			name: 'Decrease slot audio offset (ADX)',
+			options: [this.SLOTS_FIELD, Fields.SlotOffsetInc],
+			callback: async (event, context) => {
+				const options = event.options
+				let dec = await this.parseActionOption(event, 'offset', context)
+				if (dec) {
+					let slot = options.slot.split(':')
+					this.sendCommand(`SET ${slot[0]} SLOT_OFFSET ${slot[1]} DEC ${dec}`)
+				}
+			},
+		}
+
+		actions['slot_input_pad'] = {
+			name: 'Set slot input pad (ADX1)',
+			options: [this.SLOTS_FIELD, Fields.SlotInputPad],
+			callback: async ({ options }) => {
+				let slot = options.slot.split(':')
+				let pad = options.pad
+				if (pad === 'TOGGLE') {
+					let current = this.api.getSlot(parseInt(slot[0]), parseInt(slot[1])).txInputPad
+					pad = current === 0 ? '12' : '0'
+				}
+				this.sendCommand(`SET ${slot[0]} SLOT_INPUT_PAD ${slot[1]} ${pad}`)
+			},
+		}
+
+		actions['slot_polarity'] = {
+			name: 'Set slot polarity (ADX1/ADX1M)',
+			options: [this.SLOTS_FIELD, Fields.SlotPolarity],
+			callback: async ({ options }) => {
+				let slot = options.slot.split(':')
+				let pol = options.polarity
+				if (pol === 'TOGGLE') {
+					let current = this.api.getSlot(parseInt(slot[0]), parseInt(slot[1])).txPolarity
+					pol = current === 'POSITIVE' ? 'NEGATIVE' : 'POSITIVE'
+				}
+				this.sendCommand(`SET ${slot[0]} SLOT_POLARITY ${slot[1]} ${pol}`)
+			},
+		}
+
+		actions['slot_tx_device_id'] = {
+			name: 'Set slot transmitter Device ID (ADX)',
+			options: [this.SLOTS_FIELD, Fields.Name],
+			callback: async (event, context) => {
+				const options = event.options
+				let slot = options.slot.split(':')
+				let name = await this.parseActionOption(event, 'name', context, Regex.Name)
+				if (name) {
+					this.sendCommand(`SET ${slot[0]} SLOT_TX_DEVICE_ID ${slot[1]} {${name}}`)
+				}
+			},
+		}
+
+		actions['set_transmission_mode'] = {
+			name: 'Set transmission mode (Standard / High Density)',
+			options: [Fields.TransmissionMode],
+			callback: async ({ options }) => {
+				let mode = options.mode
+				if (mode === 'TOGGLE') {
+					mode = this.api.getReceiver().highDensity === 'ON' ? 'STANDARD' : 'HIGH_DENSITY'
+				}
+				this.sendCommand(`SET TRANSMISSION_MODE ${mode}`)
+			},
+		}
+	}
+
+	if (this.model.family == 'ulx') {
+		actions['set_high_density'] = {
+			name: 'Set high density mode',
+			options: [Fields.HighDensity],
+			callback: async ({ options }) => {
+				let mode = options.mode
+				if (mode === 'TOGGLE') {
+					mode = this.api.getReceiver().highDensity === 'ON' ? 'OFF' : 'ON'
+				}
+				this.sendCommand(`SET HIGH_DENSITY ${mode}`)
+			},
+		}
+
+		if (this.model.id == 'ulxd4d' || this.model.id == 'ulxd4q') {
+			actions['set_audio_summing'] = {
+				name: 'Set audio summing mode',
+				options: [Fields.AudioSumming],
+				callback: async ({ options }) => {
+					this.sendCommand(`SET AUDIO_SUMMING_MODE ${options.mode}`)
+				},
+			}
+
+			actions['set_frequency_diversity'] = {
+				name: 'Set frequency diversity mode',
+				options: [Fields.FrequencyDiversity],
+				callback: async ({ options }) => {
+					this.sendCommand(`SET FREQUENCY_DIVERSITY_MODE ${options.mode}`)
+				},
+			}
+		}
+
+		actions['set_encryption'] = {
+			name: 'Set encryption mode',
+			options: [Fields.EncryptionMode],
+			callback: async ({ options }) => {
+				this.sendCommand(`SET ENCRYPTION ${options.mode}`)
+			},
+		}
+
+		actions['regenerate_encryption_key'] = {
+			name: 'Regenerate encryption key',
+			options: [],
+			callback: async () => {
+				this.sendCommand('SET ENCRYPTION_REGENERATE_KEY ON')
+			},
+		}
+
+		actions['set_scan_lock'] = {
+			name: 'Set scan lock',
+			options: [Fields.LockState],
+			callback: async ({ options }) => {
+				let state = options.state
+				if (state === 'TOGGLE') {
+					state = this.api.getReceiver().scanLock === 'ON' ? 'OFF' : 'ON'
+				}
+				this.sendCommand(`SET SCAN_LOCK ${state}`)
+			},
+		}
+
+		actions['set_sync_lock'] = {
+			name: 'Set sync lock',
+			options: [Fields.LockState],
+			callback: async ({ options }) => {
+				let state = options.state
+				if (state === 'TOGGLE') {
+					state = this.api.getReceiver().syncLock === 'ON' ? 'OFF' : 'ON'
+				}
+				this.sendCommand(`SET SYNC_LOCK ${state}`)
+			},
+		}
+	}
+
+	if (this.model.family == 'slxplus') {
+		actions['remote_pairing'] = {
+			name: 'Start remote pairing (SLX-D+)',
+			tooltip: 'Initiate Bluetooth Low Energy remote pairing on this channel',
+			options: [this.CHANNELS_FIELD],
+			callback: async ({ options }) => {
+				this.sendCommand(`SET ${options.channel} REM_PAIR ON`)
+			},
+		}
+
+		actions['reboot_linked_tx'] = {
+			name: 'Reboot linked transmitter (SLX-D+)',
+			tooltip: 'Remotely reboot the transmitter linked to this channel',
+			options: [this.CHANNELS_FIELD],
+			callback: async ({ options }) => {
+				this.sendCommand(`SET ${options.channel} LINK_TX_REBOOT ON`)
 			},
 		}
 	}

@@ -25,6 +25,9 @@ export const Models = {
 	ad4q: { id: 'ad4q', family: 'ad', label: 'AD4Q Quad Receiver', channels: 4, slots: 8 },
 	slxd4: { id: 'slxd4', family: 'slx', label: 'SLXD4 Single Receiver', channels: 1, slots: 0 },
 	slxd4d: { id: 'slxd4d', family: 'slx', label: 'SLXD4D Dual Receiver', channels: 2, slots: 0 },
+	slxd4plus: { id: 'slxd4plus', family: 'slxplus', label: 'SLXD4+ Single Receiver', channels: 1, slots: 0 },
+	slxd4dplus: { id: 'slxd4dplus', family: 'slxplus', label: 'SLXD4D+ Dual Receiver', channels: 2, slots: 0 },
+	slxd5: { id: 'slxd5', family: 'slxplus', label: 'SLXD5 Portable Receiver', channels: 1, slots: 0 },
 }
 
 export const Choices = {
@@ -37,6 +40,7 @@ export const Choices = {
 	RfOutput: [
 		{ id: 'RF_ON', label: 'RF On' },
 		{ id: 'RF_MUTE', label: 'RF Mute' },
+		{ id: 'TOGGLE', label: 'Toggle RF Mute/Unmute' },
 	],
 	RfPower: [
 		{ id: 'LOW', label: 'Low' },
@@ -49,11 +53,71 @@ export const Choices = {
 		{ id: 'LINKED.INACTIVE', label: 'Linked - Inactive' },
 		{ id: 'LINKED.ACTIVE', label: 'Linked - Active' },
 	],
+	HighDensity: [
+		{ id: 'ON', label: 'High Density On' },
+		{ id: 'OFF', label: 'High Density Off' },
+		{ id: 'TOGGLE', label: 'Toggle High Density' },
+	],
+	TransmissionMode: [
+		{ id: 'STANDARD', label: 'Standard Mode' },
+		{ id: 'HIGH_DENSITY', label: 'High Density Mode' },
+		{ id: 'TOGGLE', label: 'Toggle Mode' },
+	],
+	AudioSumming: [
+		{ id: 'OFF', label: 'Off' },
+		{ id: '1+2', label: '1+2' },
+		{ id: '3+4', label: '3+4' },
+		{ id: '1+2/3+4', label: '1+2 / 3+4' },
+		{ id: '1+2+3+4', label: '1+2+3+4' },
+	],
+	FrequencyDiversity: [
+		{ id: 'OFF', label: 'Off' },
+		{ id: '1+2', label: '1+2' },
+		{ id: '3+4', label: '3+4' },
+		{ id: '1+2/3+4', label: '1+2 / 3+4' },
+	],
+	EncryptionMode: [
+		{ id: 'OFF', label: 'Off' },
+		{ id: 'MANUAL', label: 'Manual' },
+		{ id: 'AUTO', label: 'Auto' },
+	],
+	LockState: [
+		{ id: 'ON', label: 'Locked' },
+		{ id: 'OFF', label: 'Unlocked' },
+		{ id: 'TOGGLE', label: 'Toggle Lock' },
+	],
+	SlotInputPad: [
+		{ id: '0', label: 'Pad Off (0 dB)' },
+		{ id: '12', label: 'Pad On (-12 dB)' },
+		{ id: 'TOGGLE', label: 'Toggle Pad' },
+	],
+	SlotPolarity: [
+		{ id: 'POSITIVE', label: 'Positive' },
+		{ id: 'NEGATIVE', label: 'Negative' },
+		{ id: 'TOGGLE', label: 'Toggle Polarity' },
+	],
+	MicLine: [
+		{ id: 'MIC', label: 'Mic Level' },
+		{ id: 'LINE', label: 'Line Level' },
+	],
+	LinkStatus: [
+		{ id: 'EMPTY', label: 'Empty' },
+		{ id: 'LINKED.INACTIVE', label: 'Linked - Inactive' },
+		{ id: 'LINKED.ACTIVE', label: 'Linked - Active' },
+	],
+	QualityThreshold: [
+		{ id: 1, label: 'Quality <= 1 (Poor)' },
+		{ id: 2, label: 'Quality <= 2 (Marginal)' },
+		{ id: 3, label: 'Quality <= 3 (Fair)' },
+		{ id: 4, label: 'Quality <= 4 (Good)' },
+		{ id: 5, label: 'Quality <= 5 (Excellent)' },
+	],
 }
 
 export const Regex = {
 	Frequency: '/^(4[7-9][0-9]|[5-8][0-9]{2}|9[0-2][0-9]|93[0-7])\\.\\d(00|25|50|75)$/',
-	Name: '/^.{1,8}$/',
+	Name: '/^.{1,31}$/',
+	GroupChan: '/^([0-9]{1,2}|--),([0-9]{1,2}|--)$/',
 }
 
 export const Fields = {
@@ -108,15 +172,36 @@ export const Fields = {
 	},
 	Name: {
 		type: 'textinput',
-		label: 'Name (8 characters max)',
+		label: 'Name (up to 31 chars for AD/SLX, 8 for ULX/QLX)',
 		id: 'name',
 		default: '',
 		useVariables: true,
 		// regex: '/^.{1,8}$/',
 	},
+	DeviceId: {
+		type: 'textinput',
+		label: 'Device ID / Name',
+		id: 'name',
+		default: '',
+		useVariables: true,
+	},
+	Group: {
+		type: 'textinput',
+		label: 'Group (1-99 or --)',
+		id: 'group',
+		default: '1',
+		useVariables: true,
+	},
+	ChannelNum: {
+		type: 'textinput',
+		label: 'Channel (1-99 or --)',
+		id: 'channel_num',
+		default: '1',
+		useVariables: true,
+	},
 	RfOutput: {
 		type: 'dropdown',
-		label: 'On/Off',
+		label: 'On/Off/Toggle',
 		id: 'onoff',
 		default: 'RF_ON',
 		choices: Choices.RfOutput,
@@ -125,7 +210,7 @@ export const Fields = {
 		type: 'dropdown',
 		label: 'Power Level',
 		id: 'power',
-		default: '10',
+		default: 'NORMAL',
 		choices: Choices.RfPower,
 	},
 	SlotStatus: {
@@ -134,5 +219,105 @@ export const Fields = {
 		id: 'value',
 		default: 'LINKED.ACTIVE',
 		choices: Choices.SlotStatus,
+	},
+	HighDensity: {
+		type: 'dropdown',
+		label: 'High Density Mode',
+		id: 'mode',
+		default: 'ON',
+		choices: Choices.HighDensity,
+	},
+	TransmissionMode: {
+		type: 'dropdown',
+		label: 'Transmission Mode',
+		id: 'mode',
+		default: 'HIGH_DENSITY',
+		choices: Choices.TransmissionMode,
+	},
+	AudioSumming: {
+		type: 'dropdown',
+		label: 'Audio Summing Mode',
+		id: 'mode',
+		default: 'OFF',
+		choices: Choices.AudioSumming,
+	},
+	FrequencyDiversity: {
+		type: 'dropdown',
+		label: 'Frequency Diversity Mode',
+		id: 'mode',
+		default: 'OFF',
+		choices: Choices.FrequencyDiversity,
+	},
+	EncryptionMode: {
+		type: 'dropdown',
+		label: 'Encryption Mode',
+		id: 'mode',
+		default: 'MANUAL',
+		choices: Choices.EncryptionMode,
+	},
+	LockState: {
+		type: 'dropdown',
+		label: 'Lock State',
+		id: 'state',
+		default: 'ON',
+		choices: Choices.LockState,
+	},
+	SlotInputPad: {
+		type: 'dropdown',
+		label: 'Input Pad',
+		id: 'pad',
+		default: '12',
+		choices: Choices.SlotInputPad,
+	},
+	SlotPolarity: {
+		type: 'dropdown',
+		label: 'Polarity',
+		id: 'polarity',
+		default: 'NEGATIVE',
+		choices: Choices.SlotPolarity,
+	},
+	SlotOffsetSet: {
+		type: 'textinput',
+		label: 'Offset Value (-12 to +21 dB)',
+		id: 'offset',
+		default: '0',
+		useVariables: true,
+	},
+	SlotOffsetInc: {
+		type: 'textinput',
+		label: 'Offset Increment (dB)',
+		id: 'offset',
+		default: '1',
+		useVariables: true,
+	},
+	MicLine: {
+		type: 'dropdown',
+		label: 'Mic/Line Switch Level',
+		id: 'level',
+		default: 'MIC',
+		choices: Choices.MicLine,
+	},
+	LinkStatus: {
+		type: 'dropdown',
+		label: 'Linked Transmitter Status',
+		id: 'status',
+		default: 'LINKED.ACTIVE',
+		choices: Choices.LinkStatus,
+	},
+	QualityThreshold: {
+		type: 'dropdown',
+		label: 'Signal Quality Threshold',
+		id: 'threshold',
+		default: 2,
+		choices: Choices.QualityThreshold,
+	},
+	AudioPeakThreshold: {
+		type: 'number',
+		label: 'Audio Peak Threshold (dBFS)',
+		id: 'threshold',
+		min: -50,
+		max: 0,
+		default: -6,
+		required: true,
 	},
 }

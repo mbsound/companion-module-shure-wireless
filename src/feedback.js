@@ -54,6 +54,25 @@ export function updateFeedbacks() {
 			]
 			iconDefault = ['battery', 'rf', 'audio']
 			break
+		case 'slxplus':
+			labelChoices = [
+				{ id: 'name', label: 'Channel Name' },
+				{ id: 'frequency', label: 'Frequency' },
+				{ id: 'groupChan', label: 'Group/Channel' },
+				{ id: 'audioGain', label: 'Audio Gain' },
+				{ id: 'txType', label: 'TX Model' },
+				{ id: 'linkStatus', label: 'Link Status' },
+				{ id: 'batteryRuntime', label: 'Battery Runtime' },
+			]
+			labelDefault = ['name', 'frequency', 'audioGain', 'txType']
+			iconChoices = [
+				{ id: 'battery', label: 'Battery' },
+				{ id: 'rf', label: 'RF' },
+				{ id: 'audio', label: 'Audio Level' },
+				{ id: 'encryption', label: 'Encryption' },
+			]
+			iconDefault = ['battery', 'rf', 'audio', 'encryption']
+			break
 		case 'ad':
 			labelChoices = [
 				{ id: 'name', label: 'Channel Name' },
@@ -65,6 +84,7 @@ export function updateFeedbacks() {
 				{ id: 'txPowerLevel', label: 'TX Power Level' },
 				{ id: 'batteryType', label: 'Battery Type' },
 				{ id: 'batteryRuntime', label: 'Battery Runtime' },
+				{ id: 'rfOutput', label: 'RF Output Status' },
 			]
 			labelDefault = ['name', 'frequency', 'txType', 'txPowerLevel']
 			iconChoices = [
@@ -140,6 +160,12 @@ export function updateFeedbacks() {
 					case 'batteryRuntime':
 						out.text += channel.batteryRuntime2 + '\\n'
 						break
+					case 'rfOutput':
+						out.text += channel.txRfOutput == 'RF_MUTE' ? 'RF MUTE\n' : 'RF ON\n'
+						break
+					case 'linkStatus':
+						out.text += channel.linkStatus + '\n'
+						break
 				}
 			}
 
@@ -171,27 +197,27 @@ export function updateFeedbacks() {
 		},
 	}
 
-	if (this.model.family != 'slx') {
-		if (this.model.family != 'qlx') {
-			feedbacks['channel_muted'] = {
-				type: 'boolean',
-				label: 'Channel Muted',
-				description: 'If the selected channel is muted, change the color of the button.',
-				defaultStyle: {
-					color: combineRgb(255, 255, 255),
-					bgcolor: combineRgb(128, 0, 0),
-				},
-				options: [this.CHANNELS_FIELD],
-				callback: ({ options }) => {
-					if (this.api.getChannel(parseInt(options.channel)).audioMute == 'ON') {
-						return true
-					} else {
-						return false
-					}
-				},
-			}
+	if (this.model.family == 'ulx' || this.model.family == 'ad') {
+		feedbacks['channel_muted'] = {
+			type: 'boolean',
+			name: 'Channel Muted',
+			description: 'If the selected channel is muted, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(128, 0, 0),
+			},
+			options: [this.CHANNELS_FIELD],
+			callback: ({ options }) => {
+				if (this.api.getChannel(parseInt(options.channel)).audioMute == 'ON') {
+					return true
+				} else {
+					return false
+				}
+			},
 		}
+	}
 
+	if (this.model.family != 'slx' && this.model.family != 'slxplus') {
 		feedbacks['transmitter_muted'] = {
 			type: 'boolean',
 			name: 'Transmitter Muted',
@@ -209,7 +235,9 @@ export function updateFeedbacks() {
 				}
 			},
 		}
+	}
 
+	if (this.model.family != 'slx') {
 		feedbacks['interference_status'] = {
 			type: 'boolean',
 			name: 'Interference Status',
@@ -225,6 +253,20 @@ export function updateFeedbacks() {
 				} else {
 					return false
 				}
+			},
+		}
+
+		feedbacks['encryption_warning'] = {
+			type: 'boolean',
+			name: 'Encryption Warning',
+			description: 'If an encryption mismatch or warning is detected on the channel, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(255, 0, 0),
+			},
+			options: [this.CHANNELS_FIELD],
+			callback: ({ options }) => {
+				return this.api.getChannel(parseInt(options.channel)).encryptionStatus == 'ERROR'
 			},
 		}
 	}
@@ -286,7 +328,165 @@ export function updateFeedbacks() {
 		},
 	}
 
+	feedbacks['audio_peak_clip'] = {
+		type: 'boolean',
+		name: 'Audio Peak / Clipping Alert',
+		description: 'If the audio level is peaking or clipping above the threshold, change the color of the button.',
+		defaultStyle: {
+			color: combineRgb(255, 255, 255),
+			bgcolor: combineRgb(255, 0, 0),
+		},
+		options: [this.CHANNELS_FIELD, Fields.AudioPeakThreshold],
+		callback: ({ options }) => {
+			let ch = this.api.getChannel(parseInt(options.channel))
+			return ch.audioLevel >= options.threshold || ch.audioLevelPeak >= options.threshold || ch.audioLED >= 7
+		},
+	}
+
+	if (this.model.family == 'ad' || this.model.family == 'ulx') {
+		feedbacks['talk_switch_pressed'] = {
+			type: 'boolean',
+			name: 'Transmitter Talk Switch Pressed',
+			description: 'If the transmitter talk switch / mute button is pressed, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(0, 128, 255),
+			},
+			options: [this.CHANNELS_FIELD],
+			callback: ({ options }) => {
+				return this.api.getChannel(parseInt(options.channel)).txTalkSwitch == 'PRESSED'
+			},
+		}
+	}
+
+	if (this.model.family == 'slx' || this.model.family == 'slxplus') {
+		feedbacks['audio_out_lvl_switch'] = {
+			type: 'boolean',
+			name: 'Audio Output Level Switch (Mic/Line)',
+			description: 'If the channel audio output switch matches the selected level, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(0, 0, 0),
+				bgcolor: combineRgb(255, 255, 0),
+			},
+			options: [this.CHANNELS_FIELD, Fields.MicLine],
+			callback: ({ options }) => {
+				return this.api.getChannel(parseInt(options.channel)).audioOutLevelSwitch == options.level
+			},
+		}
+	}
+
+	if (this.model.family == 'slxplus') {
+		feedbacks['slx_link_status'] = {
+			type: 'boolean',
+			name: 'Linked Transmitter Status (SLX-D+)',
+			description: 'If the linked transmitter status matches the selected status, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(0, 0, 0),
+				bgcolor: combineRgb(100, 255, 0),
+			},
+			options: [this.CHANNELS_FIELD, Fields.LinkStatus],
+			callback: ({ options }) => {
+				return this.api.getChannel(parseInt(options.channel)).linkStatus == options.status
+			},
+		}
+	}
+
 	if (this.model.family == 'ad') {
+		feedbacks['channel_rf_muted'] = {
+			type: 'boolean',
+			name: 'Channel RF Muted',
+			description:
+				"If the selected channel's transmitter RF output is muted (ShowLink), change the color of the button.",
+			defaultStyle: {
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(128, 0, 0),
+			},
+			options: [this.CHANNELS_FIELD],
+			callback: ({ options }) => {
+				let ch = this.api.getChannel(parseInt(options.channel))
+				if (ch.txRfOutput == 'RF_MUTE') return true
+				for (let slot of ch.slots) {
+					if (slot && (slot.status == 'LINKED.ACTIVE' || slot.status == 'STANDARD') && slot.txRfOutput == 'RF_MUTE') {
+						return true
+					}
+				}
+				return false
+			},
+		}
+
+		feedbacks['signal_quality'] = {
+			type: 'boolean',
+			name: 'Signal Quality Alert',
+			description:
+				'If the channel signal quality drops to or below a certain threshold, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(255, 128, 0),
+			},
+			options: [this.CHANNELS_FIELD, Fields.QualityThreshold],
+			callback: ({ options }) => {
+				let q = this.api.getChannel(parseInt(options.channel)).signalQuality
+				return q !== 255 && q <= options.threshold
+			},
+		}
+
+		feedbacks['unregistered_tx'] = {
+			type: 'boolean',
+			name: 'Unregistered Transmitter Warning',
+			description: 'If an unregistered transmitter is detected on the channel, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(255, 0, 0),
+			},
+			options: [this.CHANNELS_FIELD],
+			callback: ({ options }) => {
+				return this.api.getChannel(parseInt(options.channel)).unregisteredTxStatus == 'ERROR'
+			},
+		}
+
+		feedbacks['fd_mode_active'] = {
+			type: 'boolean',
+			name: 'Frequency Diversity Active',
+			description: 'If Frequency Diversity is active on the channel, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(0, 0, 0),
+				bgcolor: combineRgb(0, 255, 255),
+			},
+			options: [this.CHANNELS_FIELD],
+			callback: ({ options }) => {
+				let fd = this.api.getChannel(parseInt(options.channel)).fdMode
+				return fd == 'FD-C' || fd == 'FD-S'
+			},
+		}
+
+		feedbacks['quadversity_active'] = {
+			type: 'boolean',
+			name: 'Quadversity Mode Active',
+			description: 'If Quadversity mode is enabled on the receiver, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(0, 0, 0),
+				bgcolor: combineRgb(0, 255, 255),
+			},
+			options: [],
+			callback: () => {
+				return this.api.getReceiver().quadversityMode == 'ON'
+			},
+		}
+
+		feedbacks['transmission_mode_hd'] = {
+			type: 'boolean',
+			name: 'High Density Transmission Mode',
+			description: 'If High Density transmission mode is active, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(0, 0, 0),
+				bgcolor: combineRgb(255, 255, 0),
+			},
+			options: [],
+			callback: () => {
+				return this.api.getReceiver().highDensity == 'ON'
+			},
+		}
+
 		feedbacks['slot_is_active'] = {
 			type: 'boolean',
 			name: 'Slot is Active',
@@ -310,6 +510,7 @@ export function updateFeedbacks() {
 				}
 			},
 		}
+
 		feedbacks['slot_status'] = {
 			type: 'boolean',
 			name: 'Slot Status',
@@ -364,6 +565,80 @@ export function updateFeedbacks() {
 				} else {
 					return false
 				}
+			},
+		}
+	}
+
+	if (this.model.family == 'ulx') {
+		feedbacks['high_density_mode'] = {
+			type: 'boolean',
+			name: 'High Density Mode Active',
+			description: 'If High Density mode is active on the receiver, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(0, 0, 0),
+				bgcolor: combineRgb(255, 255, 0),
+			},
+			options: [],
+			callback: () => {
+				return this.api.getReceiver().highDensity == 'ON'
+			},
+		}
+
+		if (this.model.id == 'ulxd4d' || this.model.id == 'ulxd4q') {
+			feedbacks['audio_summing_mode'] = {
+				type: 'boolean',
+				name: 'Audio Summing Mode',
+				description: 'If the audio summing mode matches the selected mode, change the color of the button.',
+				defaultStyle: {
+					color: combineRgb(0, 0, 0),
+					bgcolor: combineRgb(0, 255, 255),
+				},
+				options: [Fields.AudioSumming],
+				callback: ({ options }) => {
+					return this.api.getReceiver().audioSumming == options.mode
+				},
+			}
+
+			feedbacks['frequency_diversity_mode'] = {
+				type: 'boolean',
+				name: 'Frequency Diversity Mode',
+				description: 'If the frequency diversity mode matches the selected mode, change the color of the button.',
+				defaultStyle: {
+					color: combineRgb(0, 0, 0),
+					bgcolor: combineRgb(0, 255, 255),
+				},
+				options: [Fields.FrequencyDiversity],
+				callback: ({ options }) => {
+					return this.api.getReceiver().frequencyDiversity == options.mode
+				},
+			}
+		}
+
+		feedbacks['scan_lock_active'] = {
+			type: 'boolean',
+			name: 'Scan Lock Active',
+			description: 'If Scan Lock is active on the receiver, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(255, 128, 0),
+			},
+			options: [],
+			callback: () => {
+				return this.api.getReceiver().scanLock == 'ON'
+			},
+		}
+
+		feedbacks['sync_lock_active'] = {
+			type: 'boolean',
+			name: 'Sync Lock Active',
+			description: 'If Sync Lock is active on the receiver, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(255, 128, 0),
+			},
+			options: [],
+			callback: () => {
+				return this.api.getReceiver().syncLock == 'ON'
 			},
 		}
 	}
