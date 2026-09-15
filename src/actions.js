@@ -177,10 +177,12 @@ export function updateActions() {
 			callback: async (event, context) => {
 				const options = event.options
 				let offset = await this.parseActionOption(event, 'offset', context)
-				if (offset !== null && offset !== undefined) {
+				if (offset !== null && offset !== undefined && offset !== '') {
 					let slot = options.slot.split(':')
 					let val = parseInt(offset) + 12
-					this.sendCommand(`SET ${slot[0]} SLOT_OFFSET ${slot[1]} ${val}`)
+					if (!isNaN(val) && val >= 0 && val <= 33) {
+						this.sendCommand(`SET ${slot[0]} SLOT_OFFSET ${slot[1]} ${val}`)
+					}
 				}
 			},
 		}

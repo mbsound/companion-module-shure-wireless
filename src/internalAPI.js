@@ -223,7 +223,7 @@ export default class WirelessApi {
 				break
 			case 'slx':
 			case 'slxplus':
-				icon = this.icons.getSLXStatus(image, audioLED, rfBitmapA, batteryBars, opt.barlevel)
+				icon = this.icons.getSLXStatus(image, audioLED, rfBitmapA, batteryBars, opt.barlevel, encryption)
 				break
 			case 'ad':
 				icon = this.icons.getADStatus(

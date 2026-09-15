@@ -410,10 +410,10 @@ class ShureWirelessInstance extends InstanceBase {
 				if (isNaN(commandNum)) {
 					//this command isn't about a specific channel
 					this.api.updateReceiver(commandArr[0], joinData(commandArr, 1))
-				} else if (commandArr[1].startsWith('SLOT')) {
+				} else if (commandArr[1] && commandArr[1].startsWith('SLOT')) {
 					//this command is about a specific SLOT in AD
 					this.api.updateSlot(commandNum, parseInt(commandArr[2]), commandArr[1], joinData(commandArr, 3))
-				} else {
+				} else if (commandArr[1]) {
 					//this command is about a specific channel
 					this.api.updateChannel(commandNum, commandArr[1], joinData(commandArr, 2))
 				}

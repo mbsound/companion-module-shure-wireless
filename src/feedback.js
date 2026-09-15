@@ -161,10 +161,10 @@ export function updateFeedbacks() {
 						out.text += channel.batteryRuntime2 + '\\n'
 						break
 					case 'rfOutput':
-						out.text += channel.txRfOutput == 'RF_MUTE' ? 'RF MUTE\n' : 'RF ON\n'
+						out.text += channel.txRfOutput == 'RF_MUTE' ? 'RF MUTE\\n' : 'RF ON\\n'
 						break
 					case 'linkStatus':
-						out.text += channel.linkStatus + '\n'
+						out.text += channel.linkStatus + '\\n'
 						break
 				}
 			}
@@ -560,7 +560,7 @@ export function updateFeedbacks() {
 			options: [this.SLOTS_FIELD, Fields.RfPower],
 			callback: ({ options }) => {
 				let slot = options.slot.split(':')
-				if (this.api.getSlot(parseInt(slot[0]), parseInt(slot[1])).txPowerMode == parseInt(options.power)) {
+				if (this.api.getSlot(parseInt(slot[0]), parseInt(slot[1])).txPowerMode == options.power) {
 					return true
 				} else {
 					return false

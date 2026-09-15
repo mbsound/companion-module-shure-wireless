@@ -683,7 +683,7 @@ export default class Icons {
 	 * @access public
 	 * @since 1.1.0
 	 */
-	getSLXStatus(image, audio, rf, battery, batteryAlertLevel) {
+	getSLXStatus(image, audio, rf, battery, batteryAlertLevel, encryption) {
 		let out
 
 		if (image && image.width && image.height) {
@@ -693,7 +693,8 @@ export default class Icons {
 				image.height +
 				(audio ? 'b' + audio : '') +
 				(rf ? 'c' + rf : '') +
-				(battery ? 'e' + (battery <= batteryAlertLevel ? battery + 'R' : battery) : '')
+				(battery ? 'e' + (battery <= batteryAlertLevel ? battery + 'R' : battery) : '') +
+				(encryption ? 'g' + encryption : '')
 
 			if (this.savedIcons[id] === undefined) {
 				let img = new Image(image.width, image.height)
@@ -710,6 +711,10 @@ export default class Icons {
 					this.drawFromPNGdata(img, this.BATTERY_RED[battery], 3, 46 + yOffset, 25, 9)
 				} else {
 					this.drawFromPNGdata(img, this.BATTERY[battery], 3, 46 + yOffset, 25, 9)
+				}
+
+				if (encryption) {
+					this.drawFromPNGdata(img, this.ENCRYPTION[encryption], 52, 2 + yOffset, 16, 6)
 				}
 
 				out = img.toBase64()
