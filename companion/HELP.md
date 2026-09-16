@@ -4,8 +4,10 @@ This module will connect to the Shure receivers below to provide feedback status
 
 - Shure ULX-D (ULXD4, ULXD4D, ULXD4Q)
 - Shure QLX-D (QLXD4)
-- Shure SLX-D (SLXD4, SLXD4D)
+- Shure SLX-D / SLX-D+ (SLXD4, SLXD4D, SLXD4+, SLXD4D+, SLXD5)
 - Shure Axient Digital (AD4D, AD4Q)
+- Shure ANX4 Multi-Channel Receiver Platform (up to 24 channels)
+- Shure PSM1000 In-Ear Monitoring Transmitter (P10T)
 
 ### Available actions
 

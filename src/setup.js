@@ -28,6 +28,8 @@ export const Models = {
 	slxd4plus: { id: 'slxd4plus', family: 'slxplus', label: 'SLXD4+ Single Receiver', channels: 1, slots: 0 },
 	slxd4dplus: { id: 'slxd4dplus', family: 'slxplus', label: 'SLXD4D+ Dual Receiver', channels: 2, slots: 0 },
 	slxd5: { id: 'slxd5', family: 'slxplus', label: 'SLXD5 Portable Receiver', channels: 1, slots: 0 },
+	psm1000: { id: 'psm1000', family: 'psm', label: 'PSM1000 Dual Transmitter', channels: 2, slots: 0 },
+	anx4: { id: 'anx4', family: 'ad', label: 'ANX4 Multi-Channel Receiver (up to 24 Ch)', channels: 24, slots: 8 },
 }
 
 export const Choices = {
@@ -112,12 +114,52 @@ export const Choices = {
 		{ id: 4, label: 'Quality <= 4 (Good)' },
 		{ id: 5, label: 'Quality <= 5 (Excellent)' },
 	],
+	PsmRfTxLevel: [
+		{ id: '10', label: '10 mW' },
+		{ id: '50', label: '50 mW' },
+		{ id: '100', label: '100 mW' },
+	],
+	PsmAudioTxMode: [
+		{ id: '1', label: 'Mono' },
+		{ id: '2', label: 'Point to Point' },
+		{ id: '3', label: 'Stereo' },
+	],
+	PsmAudioInLineLevel: [
+		{ id: '0', label: 'Aux (-10 dBV)' },
+		{ id: '1', label: 'Line (+4 dBu)' },
+		{ id: 'TOGGLE', label: 'Toggle Line/Aux' },
+	],
+	PsmRfMute: [
+		{ id: '0', label: 'Unmute' },
+		{ id: '1', label: 'Mute' },
+		{ id: 'TOGGLE', label: 'Toggle Mute/Unmute' },
+	],
+	TxPhantomPower: [
+		{ id: '0000', label: 'Off' },
+		{ id: '012', label: '+12V' },
+		{ id: '048', label: '+48V' },
+	],
+	TxHighPassFilter: [
+		{ id: '000', label: 'Off' },
+		{ id: '040', label: '40 Hz' },
+		{ id: '080', label: '80 Hz' },
+		{ id: '160', label: '160 Hz' },
+		{ id: '240', label: '240 Hz' },
+	],
+	AntennaConfiguration: [
+		{ id: 'AUTOMATIC', label: 'Automatic' },
+		{ id: 'AB', label: 'Antenna AB' },
+		{ id: 'CD', label: 'Antenna CD' },
+		{ id: 'QUADVERSITY', label: 'Quadversity' },
+	],
 }
 
 export const Regex = {
 	Frequency: '/^\\d{3,4}\\.\\d{3}$/',
 	Name: '/^.{1,31}$/',
 	GroupChan: '/^([0-9]{1,2}|--),([0-9]{1,2}|--)$/',
+	PsmGainSet: { range: { min: -67, max: 0 } },
+	PsmGainIncrement: { range: { min: 1, max: 67 } },
 }
 
 export const Fields = {
@@ -319,5 +361,70 @@ export const Fields = {
 		max: 0,
 		default: -6,
 		required: true,
+	},
+	PsmGainSet: {
+		type: 'textinput',
+		label: 'Audio In Level (-67 to 0 dB)',
+		id: 'gain',
+		default: '-16',
+		useVariables: true,
+		required: true,
+	},
+	PsmGainIncrement: {
+		type: 'textinput',
+		label: 'Gain Value (dB)',
+		id: 'gain',
+		default: '1',
+		useVariables: true,
+		required: true,
+	},
+	PsmRfTxLevel: {
+		type: 'dropdown',
+		label: 'RF Level (mW)',
+		id: 'level',
+		default: '10',
+		choices: Choices.PsmRfTxLevel,
+	},
+	PsmAudioTxMode: {
+		type: 'dropdown',
+		label: 'Audio TX Mode',
+		id: 'mode',
+		default: '3',
+		choices: Choices.PsmAudioTxMode,
+	},
+	PsmAudioInLineLevel: {
+		type: 'dropdown',
+		label: 'Audio Input Line Level',
+		id: 'level',
+		default: '1',
+		choices: Choices.PsmAudioInLineLevel,
+	},
+	PsmRfMute: {
+		type: 'dropdown',
+		label: 'Mute/Unmute/Toggle',
+		id: 'choice',
+		default: '1',
+		choices: Choices.PsmRfMute,
+	},
+	TxPhantomPower: {
+		type: 'dropdown',
+		label: 'Phantom Power',
+		id: 'value',
+		default: '0000',
+		choices: Choices.TxPhantomPower,
+	},
+	TxHighPassFilter: {
+		type: 'dropdown',
+		label: 'High Pass Filter',
+		id: 'value',
+		default: '000',
+		choices: Choices.TxHighPassFilter,
+	},
+	AntennaConfiguration: {
+		type: 'dropdown',
+		label: 'Antenna Configuration',
+		id: 'value',
+		default: 'AUTOMATIC',
+		choices: Choices.AntennaConfiguration,
 	},
 }

@@ -85,6 +85,9 @@ export function updateFeedbacks() {
 				{ id: 'batteryType', label: 'Battery Type' },
 				{ id: 'batteryRuntime', label: 'Battery Runtime' },
 				{ id: 'rfOutput', label: 'RF Output Status' },
+				{ id: 'phantomPower', label: 'TX Phantom Power' },
+				{ id: 'hpf', label: 'TX High Pass Filter' },
+				{ id: 'antennaConfig', label: 'Antenna Configuration' },
 			]
 			labelDefault = ['name', 'frequency', 'txType', 'txPowerLevel']
 			iconChoices = [
@@ -96,6 +99,21 @@ export function updateFeedbacks() {
 				{ id: 'quality', label: 'Quality' },
 			]
 			iconDefault = ['battery', 'locks', 'rf', 'audio', 'encryption', 'quality']
+			break
+		case 'psm':
+			labelChoices = [
+				{ id: 'name', label: 'Channel Name' },
+				{ id: 'frequency', label: 'Frequency' },
+				{ id: 'groupChan', label: 'Group/Channel' },
+				{ id: 'audioInLevel', label: 'Audio In Level' },
+				{ id: 'rfTxLevel', label: 'RF TX Level' },
+				{ id: 'rfMute', label: 'RF Mute' },
+				{ id: 'audioTxMode', label: 'Audio TX Mode' },
+				{ id: 'audioInLineLevel', label: 'Audio In Line Level' },
+			]
+			labelDefault = ['name', 'frequency', 'rfMute', 'rfTxLevel']
+			iconChoices = []
+			iconDefault = []
 			break
 	}
 
@@ -166,6 +184,31 @@ export function updateFeedbacks() {
 					case 'linkStatus':
 						out.text += channel.linkStatus + '\\n'
 						break
+					case 'audioInLevel':
+						out.text += channel.audioInLevel + ' dB\\n'
+						break
+					case 'rfTxLevel':
+						out.text += channel.rfTxLevel + ' mW\\n'
+						break
+					case 'rfMute':
+						out.text += (channel.rfMute == '1' ? 'RF MUTE' : 'RF ON') + '\\n'
+						break
+					case 'audioTxMode':
+						out.text +=
+							(channel.audioTxMode == '1' ? 'Mono' : channel.audioTxMode == '2' ? 'Point to Point' : 'Stereo') + '\\n'
+						break
+					case 'audioInLineLevel':
+						out.text += (channel.audioInLineLevel == '1' ? 'Line' : 'Aux') + '\\n'
+						break
+					case 'phantomPower':
+						out.text += channel.txPhantomPower + '\\n'
+						break
+					case 'hpf':
+						out.text += channel.txHighPassFilter + '\\n'
+						break
+					case 'antennaConfig':
+						out.text += channel.antennaConfiguration + '\\n'
+						break
 				}
 			}
 
@@ -179,22 +222,24 @@ export function updateFeedbacks() {
 		},
 	}
 
-	feedbacks['battery_level'] = {
-		type: 'boolean',
-		name: 'Battery Level',
-		description: 'If the battery bar drops to or below a certain value, change the color of the button.',
-		defaultStyle: {
-			color: combineRgb(255, 255, 255),
-			bgcolor: combineRgb(255, 0, 0),
-		},
-		options: [this.CHANNELS_FIELD, Fields.BatteryLevel],
-		callback: ({ options }) => {
-			if (this.api.getChannel(parseInt(options.channel)).batteryBars <= options.barlevel) {
-				return true
-			} else {
-				return false
-			}
-		},
+	if (this.model.family != 'psm') {
+		feedbacks['battery_level'] = {
+			type: 'boolean',
+			name: 'Battery Level',
+			description: 'If the battery bar drops to or below a certain value, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(255, 0, 0),
+			},
+			options: [this.CHANNELS_FIELD, Fields.BatteryLevel],
+			callback: ({ options }) => {
+				if (this.api.getChannel(parseInt(options.channel)).batteryBars <= options.barlevel) {
+					return true
+				} else {
+					return false
+				}
+			},
+		}
 	}
 
 	if (this.model.family == 'ulx' || this.model.family == 'ad') {
@@ -217,7 +262,7 @@ export function updateFeedbacks() {
 		}
 	}
 
-	if (this.model.family != 'slx' && this.model.family != 'slxplus') {
+	if (this.model.family != 'slx' && this.model.family != 'slxplus' && this.model.family != 'psm') {
 		feedbacks['transmitter_muted'] = {
 			type: 'boolean',
 			name: 'Transmitter Muted',
@@ -237,7 +282,7 @@ export function updateFeedbacks() {
 		}
 	}
 
-	if (this.model.family != 'slx') {
+	if (this.model.family != 'slx' && this.model.family != 'psm') {
 		feedbacks['interference_status'] = {
 			type: 'boolean',
 			name: 'Interference Status',
@@ -289,58 +334,60 @@ export function updateFeedbacks() {
 		},
 	}
 
-	feedbacks['channel_gain'] = {
-		type: 'boolean',
-		name: 'Channel Gain',
-		description: "If the selected channel's gain is set, change the color of the button.",
-		defaultStyle: {
-			color: combineRgb(0, 0, 0),
-			bgcolor: combineRgb(255, 255, 0),
-		},
-		options: [this.CHANNELS_FIELD, Fields.GainSet],
-		callback: ({ options }) => {
-			if (this.api.getChannel(parseInt(options.channel)).audioGain == options.gain) {
-				return true
-			} else {
-				return false
-			}
-		},
-	}
+	if (this.model.family != 'psm') {
+		feedbacks['channel_gain'] = {
+			type: 'boolean',
+			name: 'Channel Gain',
+			description: "If the selected channel's gain is set, change the color of the button.",
+			defaultStyle: {
+				color: combineRgb(0, 0, 0),
+				bgcolor: combineRgb(255, 255, 0),
+			},
+			options: [this.CHANNELS_FIELD, Fields.GainSet],
+			callback: ({ options }) => {
+				if (this.api.getChannel(parseInt(options.channel)).audioGain == options.gain) {
+					return true
+				} else {
+					return false
+				}
+			},
+		}
 
-	feedbacks['transmitter_turned_off'] = {
-		type: 'boolean',
-		name: 'Transmitter Turned Off',
-		description: "If the selected channel's transmitter is powered off, change the color of the button.",
-		defaultStyle: {
-			color: combineRgb(255, 255, 255),
-			bgcolor: combineRgb(0, 0, 128),
-		},
-		options: [this.CHANNELS_FIELD],
-		callback: ({ options }) => {
-			if (
-				this.api.getChannel(parseInt(options.channel)).txType == 'Unknown' ||
-				this.api.getChannel(parseInt(options.channel)).batteryBars == 255
-			) {
-				return true
-			} else {
-				return false
-			}
-		},
-	}
+		feedbacks['transmitter_turned_off'] = {
+			type: 'boolean',
+			name: 'Transmitter Turned Off',
+			description: "If the selected channel's transmitter is powered off, change the color of the button.",
+			defaultStyle: {
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(0, 0, 128),
+			},
+			options: [this.CHANNELS_FIELD],
+			callback: ({ options }) => {
+				if (
+					this.api.getChannel(parseInt(options.channel)).txType == 'Unknown' ||
+					this.api.getChannel(parseInt(options.channel)).batteryBars == 255
+				) {
+					return true
+				} else {
+					return false
+				}
+			},
+		}
 
-	feedbacks['audio_peak_clip'] = {
-		type: 'boolean',
-		name: 'Audio Peak / Clipping Alert',
-		description: 'If the audio level is peaking or clipping above the threshold, change the color of the button.',
-		defaultStyle: {
-			color: combineRgb(255, 255, 255),
-			bgcolor: combineRgb(255, 0, 0),
-		},
-		options: [this.CHANNELS_FIELD, Fields.AudioPeakThreshold],
-		callback: ({ options }) => {
-			let ch = this.api.getChannel(parseInt(options.channel))
-			return ch.audioLevel >= options.threshold || ch.audioLevelPeak >= options.threshold || ch.audioLED >= 7
-		},
+		feedbacks['audio_peak_clip'] = {
+			type: 'boolean',
+			name: 'Audio Peak / Clipping Alert',
+			description: 'If the audio level is peaking or clipping above the threshold, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(255, 0, 0),
+			},
+			options: [this.CHANNELS_FIELD, Fields.AudioPeakThreshold],
+			callback: ({ options }) => {
+				let ch = this.api.getChannel(parseInt(options.channel))
+				return ch.audioLevel >= options.threshold || ch.audioLevelPeak >= options.threshold || ch.audioLED >= 7
+			},
+		}
 	}
 
 	if (this.model.family == 'ad' || this.model.family == 'ulx') {
@@ -567,6 +614,86 @@ export function updateFeedbacks() {
 				}
 			},
 		}
+
+		feedbacks['antenna_configuration'] = {
+			type: 'boolean',
+			name: 'Antenna Configuration',
+			description: 'If the channel antenna configuration matches the selected mode, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(0, 0, 0),
+				bgcolor: combineRgb(0, 255, 255),
+			},
+			options: [this.CHANNELS_FIELD, Fields.AntennaConfiguration],
+			callback: ({ options }) => {
+				return this.api.getChannel(parseInt(options.channel)).antennaConfiguration == options.value
+			},
+		}
+
+		feedbacks['tx_phantom_power'] = {
+			type: 'boolean',
+			name: 'Transmitter Phantom Power (Channel)',
+			description: 'If the transmitter phantom power matches the selected state, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(255, 0, 0),
+			},
+			options: [this.CHANNELS_FIELD, Fields.TxPhantomPower],
+			callback: ({ options }) => {
+				let ppMap = { '0000': 'Off', '012': '+12V', '048': '+48V' }
+				let expected = ppMap[options.value] || options.value
+				return this.api.getChannel(parseInt(options.channel)).txPhantomPower == expected
+			},
+		}
+
+		feedbacks['tx_high_pass_filter'] = {
+			type: 'boolean',
+			name: 'Transmitter High Pass Filter (Channel)',
+			description: 'If the transmitter high pass filter matches the selected cutoff, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(0, 0, 0),
+				bgcolor: combineRgb(0, 255, 255),
+			},
+			options: [this.CHANNELS_FIELD, Fields.TxHighPassFilter],
+			callback: ({ options }) => {
+				let hpfMap = { '000': 'Off', '040': '40 Hz', '080': '80 Hz', '160': '160 Hz', '240': '240 Hz' }
+				let expected = hpfMap[options.value] || options.value
+				return this.api.getChannel(parseInt(options.channel)).txHighPassFilter == expected
+			},
+		}
+
+		feedbacks['slot_phantom_power'] = {
+			type: 'boolean',
+			name: 'Transmitter Phantom Power (Slot)',
+			description: 'If the slot transmitter phantom power matches the selected state, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(255, 0, 0),
+			},
+			options: [this.SLOTS_FIELD, Fields.TxPhantomPower],
+			callback: ({ options }) => {
+				let slot = options.slot.split(':')
+				let ppMap = { '0000': 'Off', '012': '+12V', '048': '+48V' }
+				let expected = ppMap[options.value] || options.value
+				return this.api.getSlot(parseInt(slot[0]), parseInt(slot[1])).txPhantomPower == expected
+			},
+		}
+
+		feedbacks['slot_high_pass_filter'] = {
+			type: 'boolean',
+			name: 'Transmitter High Pass Filter (Slot)',
+			description: 'If the slot transmitter high pass filter matches the selected cutoff, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(0, 0, 0),
+				bgcolor: combineRgb(0, 255, 255),
+			},
+			options: [this.SLOTS_FIELD, Fields.TxHighPassFilter],
+			callback: ({ options }) => {
+				let slot = options.slot.split(':')
+				let hpfMap = { '000': 'Off', '040': '40 Hz', '080': '80 Hz', '160': '160 Hz', '240': '240 Hz' }
+				let expected = hpfMap[options.value] || options.value
+				return this.api.getSlot(parseInt(slot[0]), parseInt(slot[1])).txHighPassFilter == expected
+			},
+		}
 	}
 
 	if (this.model.family == 'ulx') {
@@ -639,6 +766,112 @@ export function updateFeedbacks() {
 			options: [],
 			callback: () => {
 				return this.api.getReceiver().syncLock == 'ON'
+			},
+		}
+	}
+
+	if (this.model.family == 'psm') {
+		feedbacks['psm_rf_muted'] = {
+			type: 'boolean',
+			name: 'RF Mute State',
+			description: "If the selected channel's RF is muted, change the color of the button.",
+			defaultStyle: {
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(255, 0, 0),
+			},
+			options: [this.CHANNELS_FIELD, Fields.PsmRfMute],
+			callback: ({ options }) => {
+				let ch = this.api.getChannel(parseInt(options.channel))
+				if (options.choice === 'TOGGLE') {
+					return ch.rfMute === '1'
+				}
+				return ch.rfMute === options.choice
+			},
+		}
+
+		feedbacks['psm_rf_tx_level'] = {
+			type: 'boolean',
+			name: 'RF TX Power Level',
+			description: "If the selected channel's RF is set to a specific power level, change the color of the button.",
+			defaultStyle: {
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(0, 128, 255),
+			},
+			options: [this.CHANNELS_FIELD, Fields.PsmRfTxLevel],
+			callback: ({ options }) => {
+				return this.api.getChannel(parseInt(options.channel)).rfTxLevel == options.level
+			},
+		}
+
+		feedbacks['psm_audio_tx_mode'] = {
+			type: 'boolean',
+			name: 'Audio TX Mode',
+			description: "If the selected channel's audio TX mode matches, change the color of the button.",
+			defaultStyle: {
+				color: combineRgb(0, 0, 0),
+				bgcolor: combineRgb(200, 200, 0),
+			},
+			options: [this.CHANNELS_FIELD, Fields.PsmAudioTxMode],
+			callback: ({ options }) => {
+				return this.api.getChannel(parseInt(options.channel)).audioTxMode == options.mode
+			},
+		}
+
+		feedbacks['psm_audio_in_line_level'] = {
+			type: 'boolean',
+			name: 'Audio Input Line Level',
+			description: "If the selected channel's input sensitivity matches, change the color of the button.",
+			defaultStyle: {
+				color: combineRgb(0, 0, 0),
+				bgcolor: combineRgb(200, 200, 0),
+			},
+			options: [this.CHANNELS_FIELD, Fields.PsmAudioInLineLevel],
+			callback: ({ options }) => {
+				let ch = this.api.getChannel(parseInt(options.channel))
+				if (options.level === 'TOGGLE') {
+					return ch.audioInLineLevel === '1'
+				}
+				return ch.audioInLineLevel == options.level
+			},
+		}
+
+		feedbacks['psm_audio_in_level'] = {
+			type: 'boolean',
+			name: 'Audio Input Level',
+			description: "If the selected channel's audio input level matches, change the color of the button.",
+			defaultStyle: {
+				color: combineRgb(0, 0, 0),
+				bgcolor: combineRgb(255, 255, 0),
+			},
+			options: [this.CHANNELS_FIELD, Fields.PsmGainSet],
+			callback: ({ options }) => {
+				return this.api.getChannel(parseInt(options.channel)).audioInLevel == parseInt(options.gain)
+			},
+		}
+
+		feedbacks['psm_audio_clip'] = {
+			type: 'boolean',
+			name: 'Audio Input Peak / Clip Alert',
+			description: 'If the audio input level on L or R channel reaches or exceeds the threshold, change button color.',
+			defaultStyle: {
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(255, 0, 0),
+			},
+			options: [
+				this.CHANNELS_FIELD,
+				{
+					type: 'number',
+					label: 'Threshold (0-115)',
+					id: 'threshold',
+					min: 0,
+					max: 115,
+					default: 110,
+					required: true,
+				},
+			],
+			callback: ({ options }) => {
+				let ch = this.api.getChannel(parseInt(options.channel))
+				return ch.audioInLevelL >= options.threshold || ch.audioInLevelR >= options.threshold
 			},
 		}
 	}

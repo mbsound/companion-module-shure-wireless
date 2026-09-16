@@ -7,6 +7,28 @@
 export function updateVariables() {
 	let variables = []
 
+	if (this.model.family == 'psm') {
+		for (let i = 1; i <= this.model.channels; i++) {
+			let prefix = `ch_${i}`
+			variables.push({ variableId: `${prefix}_name`, name: `Channel ${i} Name` })
+			variables.push({ variableId: `${prefix}_group_chan`, name: `Channel ${i} Group & Channel` })
+			variables.push({ variableId: `${prefix}_group`, name: `Channel ${i} Group` })
+			variables.push({ variableId: `${prefix}_channel`, name: `Channel ${i} Channel` })
+			variables.push({ variableId: `${prefix}_frequency`, name: `Channel ${i} Frequency` })
+			variables.push({ variableId: `${prefix}_audio_in_level`, name: `Channel ${i} Audio In Level` })
+			variables.push({ variableId: `${prefix}_rf_tx_level`, name: `Channel ${i} RF TX Level` })
+			variables.push({ variableId: `${prefix}_rf_mute`, name: `Channel ${i} RF Mute` })
+			variables.push({ variableId: `${prefix}_audio_tx_mode`, name: `Channel ${i} Audio TX Mode` })
+			variables.push({ variableId: `${prefix}_audio_in_line_level`, name: `Channel ${i} Audio In Line Level` })
+			variables.push({ variableId: `${prefix}_audio_in_level_l`, name: `Channel ${i} Audio In Level L` })
+			variables.push({ variableId: `${prefix}_audio_in_level_r`, name: `Channel ${i} Audio In Level R` })
+			variables.push({ variableId: `${prefix}_meter_rate`, name: `Channel ${i} Meter Rate` })
+		}
+		variables.push({ variableId: 'device_id', name: 'Device ID / Name' })
+		this.setVariableDefinitions(variables)
+		return
+	}
+
 	for (let i = 1; i <= this.model.channels; i++) {
 		let prefix = `ch_${i}`
 
@@ -23,6 +45,8 @@ export function updateVariables() {
 		}
 
 		variables.push({ variableId: `${prefix}_group_chan`, name: `Channel ${i} Group & Channel` })
+		variables.push({ variableId: `${prefix}_group`, name: `Channel ${i} Group` })
+		variables.push({ variableId: `${prefix}_channel`, name: `Channel ${i} Channel` })
 		variables.push({ variableId: `${prefix}_frequency`, name: `Channel ${i} Frequency` })
 
 		if (this.model.family != 'slx') {
@@ -97,6 +121,9 @@ export function updateVariables() {
 		if (this.model.family == 'ad') {
 			variables.push({ variableId: `${prefix}_tx_input_pad`, name: `Channel ${i} Transmitter Input Pad` })
 			variables.push({ variableId: `${prefix}_tx_polarity`, name: `Channel ${i} Transmitter Polarity` })
+			variables.push({ variableId: `${prefix}_tx_phantom_power`, name: `Channel ${i} Transmitter Phantom Power` })
+			variables.push({ variableId: `${prefix}_tx_hpf`, name: `Channel ${i} Transmitter High Pass Filter` })
+			variables.push({ variableId: `${prefix}_antenna_configuration`, name: `Channel ${i} Antenna Configuration` })
 		}
 
 		if (this.model.family != 'slx' && this.model.family != 'slxplus') {
@@ -149,13 +176,17 @@ export function updateVariables() {
 				variables.push({ variableId: `${prefix}_status`, name: `Slot ${id} Status` })
 				variables.push({ variableId: `${prefix}_link_status`, name: `Slot ${id} Showlink Status` })
 				variables.push({ variableId: `${prefix}_tx_type`, name: `Slot ${id} Transmitter Type` })
+				variables.push({ variableId: `${prefix}_tx_model`, name: `Slot ${id} Transmitter Model` })
 				variables.push({ variableId: `${prefix}_tx_device_id`, name: `Slot ${id} Transmitter Device ID` })
 				variables.push({ variableId: `${prefix}_tx_offset`, name: `Slot ${id} Transmitter Offset` })
 				variables.push({ variableId: `${prefix}_tx_input_pad`, name: `Slot ${id} Transmitter Input Pad` })
+				variables.push({ variableId: `${prefix}_tx_phantom_power`, name: `Slot ${id} Transmitter Phantom Power` })
+				variables.push({ variableId: `${prefix}_tx_hpf`, name: `Slot ${id} Transmitter High Pass Filter` })
 				variables.push({ variableId: `${prefix}_tx_polarity`, name: `Slot ${id} Transmitter Polarity` })
 				variables.push({ variableId: `${prefix}_tx_power_level`, name: `Slot ${id} Transmitter Power Level` })
 				variables.push({ variableId: `${prefix}_tx_power_mode`, name: `Slot ${id} Transmitter Power Mode` })
 				variables.push({ variableId: `${prefix}_tx_rf_output`, name: `Slot ${id} Transmitter RF Output` })
+				variables.push({ variableId: `${prefix}_rf_output`, name: `Slot ${id} RF Output` })
 				variables.push({ variableId: `${prefix}_battery_bars`, name: `Slot ${id} Battery Bars` })
 				variables.push({ variableId: `${prefix}_battery_charge`, name: `Slot ${id} Battery Charge Status` })
 				variables.push({ variableId: `${prefix}_battery_cycle`, name: `Slot ${id} Battery Cycle` })
@@ -175,6 +206,12 @@ export function updateVariables() {
 
 	if (this.model.family == 'ulx' || this.model.family == 'ad') {
 		variables.push({ variableId: 'high_density_mode', name: 'High Density Mode' })
+	}
+
+	if (this.model.id == 'anx4') {
+		variables.push({ variableId: 'number_channels_licensed', name: 'Number of Channels Licensed' })
+		variables.push({ variableId: 'available_channels', name: 'Available Channels' })
+		variables.push({ variableId: 'transmission_mode', name: 'Transmission Mode' })
 	}
 
 	if (this.model.family == 'ad' || this.model.family == 'slx' || this.model.family == 'slxplus') {

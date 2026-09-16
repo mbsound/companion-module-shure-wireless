@@ -52,13 +52,22 @@ class ShureWirelessInstance extends InstanceBase {
 		}
 
 		if (this.config.meteringOn !== config.meteringOn) {
-			if (config.meteringOn === true) {
-				cmd = `< SET 0 METER_RATE ${this.config.meteringInterval} >`
+			if (this.model.family == 'psm') {
+				let rate = config.meteringOn === true ? this.config.meteringInterval : 0
+				cmd = `< SET 1 METER_RATE ${rate} >\r\n< SET 2 METER_RATE ${rate} >`
 			} else {
-				cmd = '< SET 0 METER_RATE 0 >'
+				if (config.meteringOn === true) {
+					cmd = `< SET 0 METER_RATE ${this.config.meteringInterval} >`
+				} else {
+					cmd = '< SET 0 METER_RATE 0 >'
+				}
 			}
-		} else if (this.config.meteringRate != config.meteringRate && this.config.meteringOn === true) {
-			cmd = `< SET 0 METER_RATE ${config.meteringInterval} >`
+		} else if (this.config.meteringInterval != config.meteringInterval && this.config.meteringOn === true) {
+			if (this.model.family == 'psm') {
+				cmd = `< SET 1 METER_RATE ${config.meteringInterval} >\r\n< SET 2 METER_RATE ${config.meteringInterval} >`
+			} else {
+				cmd = `< SET 0 METER_RATE ${config.meteringInterval} >`
+			}
 		}
 
 		this.config = config
@@ -307,43 +316,78 @@ class ShureWirelessInstance extends InstanceBase {
 
 			this.socket.on('connect', () => {
 				this.log('debug', 'Connected')
-				let cmd = '< GET 0 ALL >'
-				this.socket.send(cmd)
 
-				if (this.model.family == 'ad') {
-					// Query slots on channels so ShowLink slot states and RF outputs are populated immediately
+				if (this.model.family == 'psm') {
+					this.socket.send('< GET DEVICE_NAME >')
 					for (let i = 1; i <= this.model.channels; i++) {
-						for (let s = 1; s <= (this.model.slots || 8); s++) {
-							this.socket.send(`< GET ${i} SLOT_STATUS ${s} >`)
-							this.socket.send(`< GET ${i} SLOT_RF_OUTPUT ${s} >`)
+						this.socket.send(`< GET ${i} CHAN_NAME >`)
+						this.socket.send(`< GET ${i} AUDIO_IN_LVL >`)
+						this.socket.send(`< GET ${i} GROUP_CHAN >`)
+						this.socket.send(`< GET ${i} FREQUENCY >`)
+						this.socket.send(`< GET ${i} RF_TX_LVL >`)
+						this.socket.send(`< GET ${i} RF_MUTE >`)
+						this.socket.send(`< GET ${i} AUDIO_TX_MODE >`)
+						this.socket.send(`< GET ${i} AUDIO_IN_LINE_LVL >`)
+					}
+
+					if (this.config.meteringOn === true) {
+						for (let i = 1; i <= this.model.channels; i++) {
+							this.socket.send(`< SET ${i} METER_RATE ${this.config.meteringInterval} >`)
 						}
 					}
-				}
-
-				if (this.model.family == 'ulx') {
-					this.socket.send('< GET SCAN_LOCK >')
-					this.socket.send('< GET SYNC_LOCK >')
-					this.socket.send('< GET NA_DEVICE_NAME >')
-					for (let i = 1; i <= this.model.channels; i++) {
-						this.socket.send(`< GET ${i} NA_CHAN_NAME >`)
-						this.socket.send(`< GET ${i} TX_FW_VER >`)
-					}
-				}
-
-				if (this.model.family == 'slxplus') {
-					this.socket.send('< GET NA_DEVICE_NAME >')
-					this.socket.send('< GET APP_CONN_ENABLED >')
-					for (let i = 1; i <= this.model.channels; i++) {
-						this.socket.send(`< GET ${i} LINK_STATUS >`)
-						this.socket.send(`< GET ${i} LINK_TX_MODEL >`)
-						this.socket.send(`< GET ${i} LINK_TX_BATT_MINS >`)
-						this.socket.send(`< GET ${i} NA_CHAN_NAME >`)
-					}
-				}
-
-				if (this.config.meteringOn === true) {
-					cmd = `< SET 0 METER_RATE ${this.config.meteringInterval} >`
+				} else {
+					let cmd = '< GET 0 ALL >'
 					this.socket.send(cmd)
+
+					if (this.model.family == 'ad') {
+						if (this.model.id == 'anx4') {
+							this.socket.send('< GET NUMBER_CHANNELS_LICENSED >')
+							this.socket.send('< GET AVAILABLE_CHANNELS >')
+							this.socket.send('< GET TRANSMISSION_MODE >')
+						}
+						// Query slots on channels so ShowLink slot states and RF outputs are populated immediately
+						for (let i = 1; i <= this.model.channels; i++) {
+							if (this.model.id == 'anx4') {
+								this.socket.send(`< GET ${i} ANTENNA_CONFIGURATION >`)
+								this.socket.send(`< GET ${i} TX_PHANTOM_POWER >`)
+								this.socket.send(`< GET ${i} TX_HIGH_PASS_FILTER >`)
+							}
+							for (let s = 1; s <= (this.model.slots || 8); s++) {
+								this.socket.send(`< GET ${i} SLOT_STATUS ${s} >`)
+								this.socket.send(`< GET ${i} SLOT_RF_OUTPUT ${s} >`)
+								if (this.model.id == 'anx4') {
+									this.socket.send(`< GET ${i} SLOT_PHANTOM_POWER ${s} >`)
+									this.socket.send(`< GET ${i} SLOT_HIGH_PASS_FILTER ${s} >`)
+								}
+							}
+						}
+					}
+
+					if (this.model.family == 'ulx') {
+						this.socket.send('< GET SCAN_LOCK >')
+						this.socket.send('< GET SYNC_LOCK >')
+						this.socket.send('< GET NA_DEVICE_NAME >')
+						for (let i = 1; i <= this.model.channels; i++) {
+							this.socket.send(`< GET ${i} NA_CHAN_NAME >`)
+							this.socket.send(`< GET ${i} TX_FW_VER >`)
+						}
+					}
+
+					if (this.model.family == 'slxplus') {
+						this.socket.send('< GET NA_DEVICE_NAME >')
+						this.socket.send('< GET APP_CONN_ENABLED >')
+						for (let i = 1; i <= this.model.channels; i++) {
+							this.socket.send(`< GET ${i} LINK_STATUS >`)
+							this.socket.send(`< GET ${i} LINK_TX_MODEL >`)
+							this.socket.send(`< GET ${i} LINK_TX_BATT_MINS >`)
+							this.socket.send(`< GET ${i} NA_CHAN_NAME >`)
+						}
+					}
+
+					if (this.config.meteringOn === true) {
+						cmd = `< SET 0 METER_RATE ${this.config.meteringInterval} >`
+						this.socket.send(cmd)
+					}
 				}
 
 				this.heartbeatInterval = setInterval(() => {
@@ -404,7 +448,7 @@ class ShureWirelessInstance extends InstanceBase {
 				return out.trim()
 			}
 
-			if (commandType == 'REP') {
+			if (commandType == 'REP' || commandType == 'REPORT') {
 				//this is a report command
 
 				if (isNaN(commandNum)) {

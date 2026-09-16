@@ -42,6 +42,9 @@ export default class WirelessApi {
 			syncLock: 'OFF', // (ULX) OFF - ON
 			naDeviceName: '', // (ULX|SLXplus) Dante Device Name
 			appConnEnabled: 'OFF', // (SLXplus) OFF - ON
+			numberChannelsLicensed: 0, // (ANX4) 0-24
+			availableChannels: '', // (ANX4) e.g. "{1,2,3,4...}"
+			transmissionMode: '', // (ANX4) AD_STANDARD, AD_HIGH_DENSITY, ULXD_STANDARD, ULXD_HIGH_DENSITY
 		}
 		this.channels = []
 	}
@@ -90,6 +93,15 @@ export default class WirelessApi {
 				frequency2: '000.000', // (AD) 6, xxx[.]yyy
 				interferenceStatus2: 'NONE', // (AD) NONE - DETECTED
 				audioOutLevelSwitch: 'MIC', // (SLX) MIC - LINE
+
+				// psm
+				rfTxLevel: '10', // (PSM) 10, 50, 100 [mW]
+				rfMute: '0', // (PSM) 1=mute, 0=unmute
+				audioTxMode: '3', // (PSM) 1=mono, 2=point to point, 3=stereo
+				audioInLineLevel: '1', // (PSM) 0=off/Aux, 1=on/Line
+				audioInLevel: -16, // (PSM) -67 to 0 dB
+				audioInLevelL: 0, // (PSM) raw meter
+				audioInLevelR: 0, // (PSM) raw meter
 
 				//sample
 				antenna: 'XX', // (ULX|QLX|AD) raw sample
@@ -143,6 +155,9 @@ export default class WirelessApi {
 				linkTxBattRuntime: 'Unknown', // (SLXplus)
 				naChanName: '', // (ULX|SLXplus) Dante Channel Name
 				txFwVer: '', // (ULX) Transmitter Firmware Version
+				antennaConfiguration: 'AUTOMATIC', // (ANX4) AB - CD - AUTOMATIC - QUADVERSITY
+				txPhantomPower: 'Unknown', // (AD/ANX4: AD3/ADX3) Off - +12V - +48V - Unknown
+				txHighPassFilter: 'Unknown', // (AD/ANX4: AD3/ADX3) Off - 40 Hz - 80 Hz - 160 Hz - 240 Hz - Unknown
 			}
 		}
 
@@ -283,6 +298,8 @@ export default class WirelessApi {
 				batteryHealth: 255, // SLOT_BATT_HEALTH_PERCENT 0-100, 255=UNKN
 				batteryRuntime: 65535, // SLOT_BATT_MINS 0+, 65535=UNKN 65534=calcuating 65533=comm warning
 				batteryType: 'Unknown', // SLOT_BATT_TYPE ALKA - LION - LITH - NIMH - UNKN
+				txPhantomPower: 'Unknown', // (AD/ANX4: ADX3) Off - +12V - +48V - Unknown
+				txHighPassFilter: 'Unknown', // (AD/ANX4: ADX3) Off - 40 Hz - 80 Hz - 160 Hz - 240 Hz - Unknown
 			}
 		}
 
@@ -525,6 +542,62 @@ export default class WirelessApi {
 			channel.audioMute = value
 			this.instance.setVariableValues({ [`${prefix}audio_mute`]: value })
 			this.instance.checkFeedbacks('channel_muted')
+		} else if (key == 'AUDIO_IN_LVL') {
+			channel.audioInLevel = parseInt(value)
+			variable = channel.audioInLevel.toString() + (this.instance.config.variableFormat == 'units' ? ' dB' : '')
+			this.instance.setVariableValues({ [`${prefix}audio_in_level`]: variable })
+			this.instance.checkFeedbacks('psm_audio_in_level')
+		} else if (key == 'RF_TX_LVL') {
+			channel.rfTxLevel = value
+			variable = value + (this.instance.config.variableFormat == 'units' ? ' mW' : '')
+			this.instance.setVariableValues({ [`${prefix}rf_tx_level`]: variable })
+			this.instance.checkFeedbacks('psm_rf_tx_level')
+		} else if (key == 'RF_MUTE') {
+			channel.rfMute = value
+			variable = value == '1' ? 'MUTED' : 'UNMUTED'
+			this.instance.setVariableValues({ [`${prefix}rf_mute`]: variable })
+			this.instance.checkFeedbacks('psm_rf_muted')
+		} else if (key == 'AUDIO_TX_MODE') {
+			channel.audioTxMode = value
+			switch (value) {
+				case '1':
+					variable = 'Mono'
+					break
+				case '2':
+					variable = 'Point to Point'
+					break
+				case '3':
+					variable = 'Stereo'
+					break
+				default:
+					variable = value
+					break
+			}
+			this.instance.setVariableValues({ [`${prefix}audio_tx_mode`]: variable })
+			this.instance.checkFeedbacks('psm_audio_tx_mode')
+		} else if (key == 'AUDIO_IN_LINE_LVL') {
+			channel.audioInLineLevel = value
+			switch (value) {
+				case '0':
+					variable = 'Aux (-10 dBV)'
+					break
+				case '1':
+					variable = 'Line (+4 dBu)'
+					break
+				default:
+					variable = value
+					break
+			}
+			this.instance.setVariableValues({ [`${prefix}audio_in_line_level`]: variable })
+			this.instance.checkFeedbacks('psm_audio_in_line_level')
+		} else if (key == 'AUDIO_IN_LVL_L') {
+			channel.audioInLevelL = parseInt(value)
+			this.instance.setVariableValues({ [`${prefix}audio_in_level_l`]: channel.audioInLevelL })
+			this.instance.checkFeedbacks('psm_audio_clip')
+		} else if (key == 'AUDIO_IN_LVL_R') {
+			channel.audioInLevelR = parseInt(value)
+			this.instance.setVariableValues({ [`${prefix}audio_in_level_r`]: channel.audioInLevelR })
+			this.instance.checkFeedbacks('psm_audio_clip')
 		} else if (key == 'GROUP_CHANNEL2') {
 			variable = value.replace('{', '').replace('}', '').trim().split(',')
 			channel.group2 = variable[0] == '--' ? variable[0] : parseInt(variable[0])
@@ -536,7 +609,11 @@ export default class WirelessApi {
 			channel.group = variable[0] == '--' ? variable[0] : parseInt(variable[0])
 			channel.channel = variable[1] == '--' ? variable[1] : parseInt(variable[1])
 			channel.groupChan = channel.group + ',' + channel.channel
-			this.instance.setVariableValues({ [`${prefix}group_chan`]: channel.groupChan })
+			this.instance.setVariableValues({
+				[`${prefix}group_chan`]: channel.groupChan,
+				[`${prefix}group`]: channel.group,
+				[`${prefix}channel`]: channel.channel,
+			})
 		} else if (key == 'FREQUENCY') {
 			value = '' + parseInt(value)
 			channel.frequency = value.substring(0, 3) + '.' + value.substring(3, 6)
@@ -855,6 +932,52 @@ export default class WirelessApi {
 				[`${prefix}link_tx_batt_mins`]: channel.linkTxBattMins,
 				[`${prefix}link_tx_batt_runtime`]: variable,
 			})
+		} else if (key == 'ANTENNA_CONFIGURATION') {
+			channel.antennaConfiguration = value
+			this.instance.setVariableValues({ [`${prefix}antenna_configuration`]: value })
+			this.instance.checkFeedbacks('antenna_configuration')
+		} else if (key == 'TX_PHANTOM_POWER') {
+			switch (value) {
+				case '0000':
+					variable = 'Off'
+					break
+				case '012':
+					variable = '+12V'
+					break
+				case '048':
+					variable = '+48V'
+					break
+				default:
+					variable = 'Unknown'
+					break
+			}
+			channel.txPhantomPower = variable
+			this.instance.setVariableValues({ [`${prefix}tx_phantom_power`]: variable })
+			this.instance.checkFeedbacks('tx_phantom_power')
+		} else if (key == 'TX_HIGH_PASS_FILTER') {
+			switch (value) {
+				case '000':
+					variable = 'Off'
+					break
+				case '040':
+					variable = '40 Hz'
+					break
+				case '080':
+					variable = '80 Hz'
+					break
+				case '160':
+					variable = '160 Hz'
+					break
+				case '240':
+					variable = '240 Hz'
+					break
+				default:
+					variable = 'Unknown'
+					break
+			}
+			channel.txHighPassFilter = variable
+			this.instance.setVariableValues({ [`${prefix}tx_hpf`]: variable })
+			this.instance.checkFeedbacks('tx_high_pass_filter')
 		}
 	}
 
@@ -874,7 +997,7 @@ export default class WirelessApi {
 		if (key == 'FW_VER') {
 			this.receiver.firmwareVersion = value.replace('{', '').replace('}', '').trim()
 			this.instance.setVariableValues({ firmware_version: this.receiver.firmwareVersion })
-		} else if (key == 'DEVICE_ID') {
+		} else if (key == 'DEVICE_ID' || key == 'DEVICE_NAME') {
 			this.receiver.deviceId = value.replace('{', '').replace('}', '').trim()
 			this.instance.setVariableValues({ device_id: this.receiver.deviceId })
 		} else if (key == 'FREQUENCY_DIVERSITY_MODE') {
@@ -886,11 +1009,14 @@ export default class WirelessApi {
 			this.instance.setVariableValues({ audio_summing_mode: value })
 			this.instance.checkFeedbacks('audio_summing_mode')
 		} else if (key == 'HIGH_DENSITY' || key == 'TRANSMISSION_MODE') {
-			// changed from: (key =='HIGH_DENSITY' || id == 'TRANSMISSION_MODE') in order to try fix the "Reference error: id is not defined" error (ticket #5 and #6)
+			if (key == 'TRANSMISSION_MODE') {
+				this.receiver.transmissionMode = value
+				this.instance.setVariableValues({ transmission_mode: value })
+			}
 
-			if (value == 'STANDARD') {
+			if (value == 'STANDARD' || value == 'AD_STANDARD' || value == 'ULXD_STANDARD') {
 				value = 'OFF'
-			} else if (value == 'HIGH_DENSITY') {
+			} else if (value == 'HIGH_DENSITY' || value == 'AD_HIGH_DENSITY' || value == 'ULXD_HIGH_DENSITY') {
 				value = 'ON'
 			}
 
@@ -935,6 +1061,12 @@ export default class WirelessApi {
 		} else if (key == 'APP_CONN_ENABLED') {
 			this.receiver.appConnEnabled = value
 			this.instance.setVariableValues({ app_conn_enabled: value })
+		} else if (key == 'NUMBER_CHANNELS_LICENSED') {
+			this.receiver.numberChannelsLicensed = parseInt(value)
+			this.instance.setVariableValues({ number_channels_licensed: this.receiver.numberChannelsLicensed })
+		} else if (key == 'AVAILABLE_CHANNELS') {
+			this.receiver.availableChannels = value.replace('{', '').replace('}', '').trim()
+			this.instance.setVariableValues({ available_channels: this.receiver.availableChannels })
 		}
 	}
 
@@ -975,7 +1107,10 @@ export default class WirelessApi {
 				break
 			case 'SLOT_TX_MODEL':
 				slot.txType = value
-				this.instance.setVariableValues({ [`${prefix}tx_model`]: value })
+				this.instance.setVariableValues({
+					[`${prefix}tx_model`]: value,
+					[`${prefix}tx_type`]: value,
+				})
 				break
 			case 'SLOT_TX_DEVICE_ID':
 				slot.txDeviceId = value.replace('{', '').replace('}', '').trim()
@@ -1029,7 +1164,10 @@ export default class WirelessApi {
 				} else {
 					variable = value
 				}
-				this.instance.setVariableValues({ [`${prefix}rf_output`]: variable })
+				this.instance.setVariableValues({
+					[`${prefix}rf_output`]: variable,
+					[`${prefix}tx_rf_output`]: variable,
+				})
 				this.instance.checkFeedbacks('slot_rf_output')
 
 				let ch = this.getChannel(channel)
@@ -1100,6 +1238,50 @@ export default class WirelessApi {
 			case 'SLOT_BATT_TYPE':
 				slot.batteryType = value
 				this.instance.setVariableValues({ [`${prefix}battery_type`]: value })
+				break
+			case 'SLOT_PHANTOM_POWER':
+				switch (value) {
+					case '0000':
+						variable = 'Off'
+						break
+					case '012':
+						variable = '+12V'
+						break
+					case '048':
+						variable = '+48V'
+						break
+					default:
+						variable = 'Unknown'
+						break
+				}
+				slot.txPhantomPower = variable
+				this.instance.setVariableValues({ [`${prefix}tx_phantom_power`]: variable })
+				this.instance.checkFeedbacks('slot_phantom_power')
+				break
+			case 'SLOT_HIGH_PASS_FILTER':
+				switch (value) {
+					case '000':
+						variable = 'Off'
+						break
+					case '040':
+						variable = '40 Hz'
+						break
+					case '080':
+						variable = '80 Hz'
+						break
+					case '160':
+						variable = '160 Hz'
+						break
+					case '240':
+						variable = '240 Hz'
+						break
+					default:
+						variable = 'Unknown'
+						break
+				}
+				slot.txHighPassFilter = variable
+				this.instance.setVariableValues({ [`${prefix}tx_hpf`]: variable })
+				this.instance.checkFeedbacks('slot_high_pass_filter')
 				break
 		}
 	}

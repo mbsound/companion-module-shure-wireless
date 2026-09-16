@@ -29,7 +29,8 @@ export function updateActions() {
 		callback: async (event, context) => {
 			let name = await this.parseActionOption(event, 'name', context, Regex.Name)
 			if (name) {
-				this.sendCommand(`SET DEVICE_ID {${name}}`)
+				let cmd = this.model.family === 'psm' ? `SET DEVICE_NAME ${name}` : `SET DEVICE_ID {${name}}`
+				this.sendCommand(cmd)
 			}
 		},
 	}
@@ -42,7 +43,10 @@ export function updateActions() {
 			let group = await this.parseActionOption(event, 'group', context)
 			let channel = await this.parseActionOption(event, 'channel_num', context)
 			if (group && channel) {
-				let cmd = this.model.family === 'ulx' || this.model.family === 'qlx' ? 'GROUP_CHAN' : 'GROUP_CHANNEL'
+				let cmd =
+					this.model.family === 'ulx' || this.model.family === 'qlx' || this.model.family === 'psm'
+						? 'GROUP_CHAN'
+						: 'GROUP_CHANNEL'
 				this.sendCommand(`SET ${options.channel} ${cmd} ${group},${channel}`)
 			}
 		},
@@ -58,41 +62,43 @@ export function updateActions() {
 		}
 	}
 
-	actions['channel_setaudiogain'] = {
-		name: 'Set audio gain of channel',
-		options: [this.CHANNELS_A_FIELD, Fields.GainSet],
-		callback: async (event, context) => {
-			const options = event.options
-			let gainValue = await this.parseActionOption(event, 'gain', context, Regex.GainSet)
-			if (gainValue) {
-				gainValue = 18 + parseInt(gainValue)
-				this.sendCommand(`SET ${options.channel} AUDIO_GAIN ${gainValue}`)
-			}
-		},
-	}
+	if (this.model.family != 'psm') {
+		actions['channel_setaudiogain'] = {
+			name: 'Set audio gain of channel',
+			options: [this.CHANNELS_A_FIELD, Fields.GainSet],
+			callback: async (event, context) => {
+				const options = event.options
+				let gainValue = await this.parseActionOption(event, 'gain', context, Regex.GainSet)
+				if (gainValue) {
+					gainValue = 18 + parseInt(gainValue)
+					this.sendCommand(`SET ${options.channel} AUDIO_GAIN ${gainValue}`)
+				}
+			},
+		}
 
-	actions['channel_increasegain'] = {
-		name: 'Increase audio gain of channel',
-		options: [this.CHANNELS_A_FIELD, Fields.GainIncrement],
-		callback: async (event, context) => {
-			const options = event.options
-			let gainIncrement = await this.parseActionOption(event, 'gain', context, Regex.GainIncrement)
-			if (gainIncrement) {
-				this.sendCommand(`SET ${options.channel} AUDIO_GAIN INC ${gainIncrement}`)
-			}
-		},
-	}
+		actions['channel_increasegain'] = {
+			name: 'Increase audio gain of channel',
+			options: [this.CHANNELS_A_FIELD, Fields.GainIncrement],
+			callback: async (event, context) => {
+				const options = event.options
+				let gainIncrement = await this.parseActionOption(event, 'gain', context, Regex.GainIncrement)
+				if (gainIncrement) {
+					this.sendCommand(`SET ${options.channel} AUDIO_GAIN INC ${gainIncrement}`)
+				}
+			},
+		}
 
-	actions['channel_decreasegain'] = {
-		name: 'Decrease audio gain of channel',
-		options: [this.CHANNELS_A_FIELD, Fields.GainIncrement],
-		callback: async (event, context) => {
-			const options = event.options
-			let gainIncrement = await this.parseActionOption(event, 'gain', context, Regex.GainIncrement)
-			if (gainIncrement) {
-				this.sendCommand(`SET ${options.channel} AUDIO_GAIN DEC ${gainIncrement}`)
-			}
-		},
+		actions['channel_decreasegain'] = {
+			name: 'Decrease audio gain of channel',
+			options: [this.CHANNELS_A_FIELD, Fields.GainIncrement],
+			callback: async (event, context) => {
+				const options = event.options
+				let gainIncrement = await this.parseActionOption(event, 'gain', context, Regex.GainIncrement)
+				if (gainIncrement) {
+					this.sendCommand(`SET ${options.channel} AUDIO_GAIN DEC ${gainIncrement}`)
+				}
+			},
+		}
 	}
 
 	actions['channel_frequency'] = {
@@ -107,7 +113,7 @@ export function updateActions() {
 		},
 	}
 
-	if (this.model.family != 'qlx') {
+	if (this.model.family != 'qlx' && this.model.family != 'psm') {
 		actions['flash_lights'] = {
 			name: 'Flash lights on receiver',
 			tooltip: 'It will automatically turn off after 30 seconds',
@@ -254,6 +260,34 @@ export function updateActions() {
 			},
 		}
 
+		actions['slot_phantom_power'] = {
+			name: 'Set slot transmitter Phantom Power (ADX3)',
+			options: [this.SLOTS_FIELD, Fields.TxPhantomPower],
+			callback: async ({ options }) => {
+				let slot = options.slot.split(':')
+				this.sendCommand(`SET ${slot[0]} SLOT_PHANTOM_POWER ${slot[1]} ${options.value}`)
+			},
+		}
+
+		actions['slot_high_pass_filter'] = {
+			name: 'Set slot transmitter High Pass Filter (ADX3)',
+			options: [this.SLOTS_FIELD, Fields.TxHighPassFilter],
+			callback: async ({ options }) => {
+				let slot = options.slot.split(':')
+				this.sendCommand(`SET ${slot[0]} SLOT_HIGH_PASS_FILTER ${slot[1]} ${options.value}`)
+			},
+		}
+
+		if (this.model.id == 'anx4') {
+			actions['set_antenna_configuration'] = {
+				name: 'Set antenna configuration',
+				options: [this.CHANNELS_FIELD, Fields.AntennaConfiguration],
+				callback: async ({ options }) => {
+					this.sendCommand(`SET ${options.channel} ANTENNA_CONFIGURATION ${options.value}`)
+				},
+			}
+		}
+
 		actions['set_transmission_mode'] = {
 			name: 'Set transmission mode (Standard / High Density)',
 			options: [Fields.TransmissionMode],
@@ -355,6 +389,119 @@ export function updateActions() {
 			options: [this.CHANNELS_FIELD],
 			callback: async ({ options }) => {
 				this.sendCommand(`SET ${options.channel} LINK_TX_REBOOT ON`)
+			},
+		}
+	}
+
+	if (this.model.family == 'psm') {
+		actions['psm_set_audio_in_level'] = {
+			name: 'Set audio input level (-67 to 0 dB)',
+			options: [this.CHANNELS_A_FIELD, Fields.PsmGainSet],
+			callback: async (event, context) => {
+				const options = event.options
+				let gain = await this.parseActionOption(event, 'gain', context, Regex.PsmGainSet)
+				if (gain !== null && gain !== undefined) {
+					let level = parseInt(gain)
+					if (options.channel == '0') {
+						for (let i = 1; i <= this.model.channels; i++) {
+							this.sendCommand(`SET ${i} AUDIO_IN_LVL ${level}`)
+						}
+					} else {
+						this.sendCommand(`SET ${options.channel} AUDIO_IN_LVL ${level}`)
+					}
+				}
+			},
+		}
+
+		actions['psm_increase_audio_in_level'] = {
+			name: 'Increase audio input level',
+			options: [this.CHANNELS_A_FIELD, Fields.PsmGainIncrement],
+			callback: async (event, context) => {
+				const options = event.options
+				let inc = await this.parseActionOption(event, 'gain', context, Regex.PsmGainIncrement)
+				if (inc !== null && inc !== undefined) {
+					let step = parseInt(inc)
+					let chList = options.channel == '0' ? [1, 2] : [parseInt(options.channel)]
+					for (let ch of chList) {
+						let current = this.api.getChannel(ch).audioInLevel || 0
+						let target = Math.min(0, Math.max(-67, current + step))
+						this.sendCommand(`SET ${ch} AUDIO_IN_LVL ${target}`)
+					}
+				}
+			},
+		}
+
+		actions['psm_decrease_audio_in_level'] = {
+			name: 'Decrease audio input level',
+			options: [this.CHANNELS_A_FIELD, Fields.PsmGainIncrement],
+			callback: async (event, context) => {
+				const options = event.options
+				let dec = await this.parseActionOption(event, 'gain', context, Regex.PsmGainIncrement)
+				if (dec !== null && dec !== undefined) {
+					let step = parseInt(dec)
+					let chList = options.channel == '0' ? [1, 2] : [parseInt(options.channel)]
+					for (let ch of chList) {
+						let current = this.api.getChannel(ch).audioInLevel || 0
+						let target = Math.min(0, Math.max(-67, current - step))
+						this.sendCommand(`SET ${ch} AUDIO_IN_LVL ${target}`)
+					}
+				}
+			},
+		}
+
+		actions['psm_rf_mute'] = {
+			name: 'Mute, unmute, or toggle RF output',
+			options: [this.CHANNELS_A_FIELD, Fields.PsmRfMute],
+			callback: async ({ options }) => {
+				let choice = options.choice
+				let chList = options.channel == '0' ? [1, 2] : [parseInt(options.channel)]
+				for (let ch of chList) {
+					let val = choice
+					if (val === 'TOGGLE') {
+						let current = this.api.getChannel(ch).rfMute
+						val = current === '1' ? '0' : '1'
+					}
+					this.sendCommand(`SET ${ch} RF_MUTE ${val}`)
+				}
+			},
+		}
+
+		actions['psm_rf_tx_level'] = {
+			name: 'Set RF TX power level',
+			options: [this.CHANNELS_A_FIELD, Fields.PsmRfTxLevel],
+			callback: async ({ options }) => {
+				let chList = options.channel == '0' ? [1, 2] : [parseInt(options.channel)]
+				for (let ch of chList) {
+					this.sendCommand(`SET ${ch} RF_TX_LVL ${options.level}`)
+				}
+			},
+		}
+
+		actions['psm_audio_tx_mode'] = {
+			name: 'Set audio TX mode (Mono/Point to Point/Stereo)',
+			options: [this.CHANNELS_A_FIELD, Fields.PsmAudioTxMode],
+			callback: async ({ options }) => {
+				let chList = options.channel == '0' ? [1, 2] : [parseInt(options.channel)]
+				for (let ch of chList) {
+					this.sendCommand(`SET ${ch} AUDIO_TX_MODE ${options.mode}`)
+				}
+			},
+		}
+
+		actions['psm_audio_in_line_level'] = {
+			name: 'Set or toggle audio input line level (Aux/Line)',
+			options: [this.CHANNELS_A_FIELD, Fields.PsmAudioInLineLevel],
+			callback: async ({ options }) => {
+				let level = options.level
+				let chList = options.channel == '0' ? [1, 2] : [parseInt(options.channel)]
+				for (let ch of chList) {
+					let val = level
+					if (val === 'TOGGLE') {
+						let current = this.api.getChannel(ch).audioInLineLevel
+						val = current === '1' ? '0' : '1'
+					}
+					this.sendCommand(`SET ${ch} AUDIO_IN_LINE_LVL ${val}`)
+				}
 			},
 		}
 	}
