@@ -168,7 +168,8 @@ export function updateVariables() {
 			variables.push({ variableId: `${prefix}_battery_type`, name: `Channel ${i} Battery Type` })
 		}
 
-		if (this.model.slots > 0) {
+		let maxSlotChannels = this.model.id == 'anx4' ? 16 : this.model.channels
+		if (this.model.slots > 0 && i <= maxSlotChannels) {
 			for (let j = 1; j <= this.model.slots; j++) {
 				let k = j < 10 ? '0' + j : j
 				let id = `${i}-${k}`

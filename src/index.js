@@ -346,18 +346,21 @@ class ShureWirelessInstance extends InstanceBase {
 							this.socket.send('< GET TRANSMISSION_MODE >')
 						}
 						// Query slots on channels so ShowLink slot states and RF outputs are populated immediately
+						let maxSlotChannels = this.model.id == 'anx4' ? 16 : this.model.channels
 						for (let i = 1; i <= this.model.channels; i++) {
 							if (this.model.id == 'anx4') {
 								this.socket.send(`< GET ${i} ANTENNA_CONFIGURATION >`)
 								this.socket.send(`< GET ${i} TX_PHANTOM_POWER >`)
 								this.socket.send(`< GET ${i} TX_HIGH_PASS_FILTER >`)
 							}
-							for (let s = 1; s <= (this.model.slots || 8); s++) {
-								this.socket.send(`< GET ${i} SLOT_STATUS ${s} >`)
-								this.socket.send(`< GET ${i} SLOT_RF_OUTPUT ${s} >`)
-								if (this.model.id == 'anx4') {
-									this.socket.send(`< GET ${i} SLOT_PHANTOM_POWER ${s} >`)
-									this.socket.send(`< GET ${i} SLOT_HIGH_PASS_FILTER ${s} >`)
+							if (i <= maxSlotChannels) {
+								for (let s = 1; s <= (this.model.slots || 8); s++) {
+									this.socket.send(`< GET ${i} SLOT_STATUS ${s} >`)
+									this.socket.send(`< GET ${i} SLOT_RF_OUTPUT ${s} >`)
+									if (this.model.id == 'anx4') {
+										this.socket.send(`< GET ${i} SLOT_PHANTOM_POWER ${s} >`)
+										this.socket.send(`< GET ${i} SLOT_HIGH_PASS_FILTER ${s} >`)
+									}
 								}
 							}
 						}
@@ -519,6 +522,8 @@ class ShureWirelessInstance extends InstanceBase {
 			this.CHOICES_SLOTS_A.push({ id: '0:0', label: 'All Channels & Slots' })
 		}
 
+		let maxSlotChannels = this.model.id == 'anx4' ? 16 : this.model.channels
+
 		for (let i = 1; i <= this.model.channels; i++) {
 			let data = `Channel ${i}`
 
@@ -529,7 +534,7 @@ class ShureWirelessInstance extends InstanceBase {
 			this.CHOICES_CHANNELS.push({ id: i, label: data })
 			this.CHOICES_CHANNELS_A.push({ id: i, label: data })
 
-			if (this.model.slots > 0) {
+			if (this.model.slots > 0 && i <= maxSlotChannels) {
 				this.CHOICES_SLOTS_A.push({ id: `${i}:0`, label: `${data}, All Slots` })
 
 				for (let j = 1; j <= this.model.slots; j++) {

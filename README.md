@@ -80,7 +80,7 @@ The standalone PSM1000 Companion module was limited and contained critical parsi
 ### 8. Full Support for Shure ANX4 Multi-Channel Receiver Platform
 
 Full integration for Shure's next-generation **ANX4 Multi-Channel Receiver**:
-- **Massive Channel Scaling**: Supports up to 24 channels in Axient Digital transmission mode and up to 16 channels in ULX-D transmission mode, with 8 ShowLink transmitter slots per channel (up to 192 total slots tracked).
+- **Massive Channel Scaling**: Supports up to **16 channels** in Axient Digital transmission mode and up to **24 channels** in ULX-D transmission mode, with 8 ShowLink transmitter slots per Axient Digital channel (up to 128 total ShowLink slots tracked).
 - **Dynamic Channel Licensing & Availability**: Automatic polling and live variables for `number_channels_licensed` (0–24) and `available_channels` (reporting active, non-eclipsed channels when FD-C or Quadversity is in use).
 - **Multi-Standard Transmission Modes**: Live discovery and variables for `transmission_mode` (`AD_STANDARD`, `AD_HIGH_DENSITY`, `ULXD_STANDARD`, `ULXD_HIGH_DENSITY`).
 - **Antenna Configuration**: Per-channel selection and feedback for antenna distribution (`AUTOMATIC`, `AB`, `CD`, `QUADVERSITY`).
@@ -93,11 +93,11 @@ Full integration for Shure's next-generation **ANX4 Multi-Channel Receiver**:
 
 ## Supported Hardware Models
 
-| Family         | Model ID     | Description                                | Channels | ShowLink Slots |
-| -------------- | ------------ | ------------------------------------------ | -------- | -------------- |
-| Axient Digital | `ad4d`       | AD4D Dual Receiver                         | 2        | 8              |
-| Axient Digital | `ad4q`       | AD4Q Quad Receiver                         | 4        | 8              |
-| Axient Digital | `anx4`       | ANX4 Multi-Channel Receiver (up to 24 Ch)  | 24       | 8              |
+| Family         | Model ID     | Description                                     | Channels | ShowLink Slots |
+| -------------- | ------------ | ----------------------------------------------- | -------- | -------------- |
+| Axient Digital | `ad4d`       | AD4D Dual Receiver                              | 2        | 8              |
+| Axient Digital | `ad4q`       | AD4Q Quad Receiver                              | 4        | 8              |
+| Axient Digital | `anx4`       | ANX4 Multi-Channel Receiver (16 AD / 24 ULX-D)  | 24       | 8              |
 | ULX-D          | `ulxd4`      | ULXD4 Single Receiver                      | 1        | 0              |
 | ULX-D          | `ulxd4d`     | ULXD4D Dual Receiver                       | 2        | 0              |
 | ULX-D          | `ulxd4q`     | ULXD4Q Quad Receiver                       | 4        | 0              |
@@ -180,22 +180,22 @@ The Shure **ANX4 Multi-Channel Receiver** represents the evolution of Shure's fl
 
 | Feature | Axient Digital (AD4D / AD4Q) | Shure ANX4 |
 | :--- | :--- | :--- |
-| **Chassis Channel Capacity** | Fixed 2 Channels (AD4D) or 4 Channels (AD4Q) | Up to **24 Channels** (AD mode) or **16 Channels** (ULX-D mode) |
+| **Chassis Channel Capacity** | Fixed 2 Channels (AD4D) or 4 Channels (AD4Q) | Up to **16 Channels** (AD mode) or **24 Channels** (ULX-D mode) |
 | **Licensing Model** | Factory fixed hardware channel count | **Software-licensed channel tiering** (`NUMBER_CHANNELS_LICENSED` 00–24) |
 | **Form Factor / Density** | 1RU rack mount per 2 or 4 channels | High-density centralized modular architecture |
-| **Total ShowLink Slots** | 16 slots (AD4D) / 32 slots (AD4Q) | Up to **192 ShowLink transmitter slots** (24 channels × 8 slots) |
+| **Total ShowLink Slots** | 16 slots (AD4D) / 32 slots (AD4Q) | Up to **128 ShowLink transmitter slots** (16 AD channels × 8 slots) |
 
-- **AD4D / AD4Q**: Channels are hardwired to physical receiver tuner circuits inside the 1RU chassis. A system needing 24 channels requires six AD4Q chassis, six network IP connections, and complex external RF antenna splitters.
-- **ANX4**: Centralizes RF processing into a single IP endpoint managing up to 24 simultaneous audio channels. The receiver reports licensed channel capacity dynamically over IP via `< GET NUMBER_CHANNELS_LICENSED >`. This Companion module automatically monitors `number_channels_licensed` so operators know available channel capacity.
+- **AD4D / AD4Q**: Channels are hardwired to physical receiver tuner circuits inside the 1RU chassis. A system needing 16 channels requires four AD4Q chassis, four network IP connections, and complex external RF antenna splitters.
+- **ANX4**: Centralizes RF processing into a single IP endpoint managing up to 16 Axient Digital or 24 ULX-D simultaneous audio channels. The receiver reports licensed channel capacity dynamically over IP via `< GET NUMBER_CHANNELS_LICENSED >`. This Companion module automatically monitors `number_channels_licensed` so operators know available channel capacity.
 
 ### 2. Multi-Standard Transmission Modes & Hybrid Support
 
 - **AD4D / AD4Q**: Dedicated exclusively to the Axient Digital RF waveform. Supports two transmission modes: `STANDARD` (optimum RF range and battery life) and `HIGH_DENSITY` (up to 47 channels per 6 MHz TV band).
 - **ANX4**: A cross-platform hybrid receiver that natively demodulates both **Axient Digital** and **ULX-D** digital transmissions:
-  - `AD_STANDARD`: Axient Digital standard mode (up to 24 channels).
-  - `AD_HIGH_DENSITY`: Axient Digital high-density mode (up to 24 channels).
-  - `ULXD_STANDARD`: ULX-D standard mode (up to 16 channels).
-  - `ULXD_HIGH_DENSITY`: ULX-D high-density mode (up to 16 channels).
+  - `AD_STANDARD`: Axient Digital standard mode (up to 16 channels).
+  - `AD_HIGH_DENSITY`: Axient Digital high-density mode (up to 16 channels).
+  - `ULXD_STANDARD`: ULX-D standard mode (up to 24 channels).
+  - `ULXD_HIGH_DENSITY`: ULX-D high-density mode (up to 24 channels).
 - In this module, the receiver variable `transmission_mode` provides live feedback of the current operating mode across all 4 modes.
 
 ### 3. Dynamic Channel Eclipsing & Channel Availability
@@ -242,12 +242,12 @@ ANX4 expands the supported transmitter family to include the Shure **AD3** (stan
 | Capability | Axient Digital (AD4D / AD4Q) | ANX4 Platform |
 | :--- | :--- | :--- |
 | **Command Protocol** | Shure ASCII v2.0 (TCP Port 2202) | Shure ASCII v2.0 (TCP Port 2202) — Exact Superset |
-| **Channel Count** | 2 or 4 channels | Up to 24 channels (AD) / 16 channels (ULX-D) |
+| **Channel Count** | 2 or 4 channels | Up to 16 channels (AD) / 24 channels (ULX-D) |
 | **Transmission Modes** | Standard, High Density | AD Standard, AD High Density, ULX-D Standard, ULX-D High Density |
 | **Dynamic Channel Licensing** | Not applicable | Yes (`NUMBER_CHANNELS_LICENSED`) |
 | **Channel Eclipsing Telemetry** | Not applicable | Yes (`AVAILABLE_CHANNELS`) |
 | **Antenna Configuration** | Global Quadversity mode toggle | Per-channel routing (`AB`, `CD`, `AUTOMATIC`, `QUADVERSITY`) |
-| **ShowLink Slots per Channel** | 8 slots | 8 slots (up to 192 slots per receiver chassis) |
+| **ShowLink Slots per Channel** | 8 slots | 8 slots per AD channel (up to 128 slots per chassis) |
 | **ShowLink Slot Batch Query** | Slot by slot | Optimized multi-slot discovery (`SLOT_STATUS 0`) |
 | **AD3 / ADX3 Plug-On Support** | Partial (unsupported in legacy docs) | Full: Remote Phantom Power (+12V/+48V) & HPF (40–240Hz) |
 | **Specialty Transmitters** | Standard AD/ADX series | Native recognition for `ADTD`, `ADTQ`, `Q5X`, `AD3`, `ADX3` |
