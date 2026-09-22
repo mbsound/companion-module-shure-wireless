@@ -88,6 +88,7 @@ export function updateFeedbacks() {
 				{ id: 'phantomPower', label: 'TX Phantom Power' },
 				{ id: 'hpf', label: 'TX High Pass Filter' },
 				{ id: 'antennaConfig', label: 'Antenna Configuration' },
+				{ id: 'encryptionMode', label: 'Encryption Mode' },
 			]
 			labelDefault = ['name', 'frequency', 'txType', 'txPowerLevel']
 			iconChoices = [
@@ -208,6 +209,9 @@ export function updateFeedbacks() {
 						break
 					case 'antennaConfig':
 						out.text += channel.antennaConfiguration + '\\n'
+						break
+					case 'encryptionMode':
+						out.text += channel.encryptionMode + '\\n'
 						break
 				}
 			}
@@ -629,6 +633,20 @@ export function updateFeedbacks() {
 			},
 		}
 
+		feedbacks['channel_encryption_mode'] = {
+			type: 'boolean',
+			name: 'Channel Encryption Mode',
+			description: 'If the channel encryption mode matches the selected mode, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(0, 0, 0),
+				bgcolor: combineRgb(0, 255, 255),
+			},
+			options: [this.CHANNELS_FIELD, Fields.ChannelEncryptionMode],
+			callback: ({ options }) => {
+				return this.api.getChannel(parseInt(options.channel)).encryptionMode == options.mode
+			},
+		}
+
 		feedbacks['tx_phantom_power'] = {
 			type: 'boolean',
 			name: 'Transmitter Phantom Power (Channel)',
@@ -655,7 +673,7 @@ export function updateFeedbacks() {
 			},
 			options: [this.CHANNELS_FIELD, Fields.TxHighPassFilter],
 			callback: ({ options }) => {
-				let hpfMap = { '000': 'Off', '040': '40 Hz', '080': '80 Hz', '160': '160 Hz', '240': '240 Hz' }
+				let hpfMap = { '000': 'Off', '040': '40 Hz', '080': '80 Hz', 160: '160 Hz', 240: '240 Hz' }
 				let expected = hpfMap[options.value] || options.value
 				return this.api.getChannel(parseInt(options.channel)).txHighPassFilter == expected
 			},
@@ -681,7 +699,8 @@ export function updateFeedbacks() {
 		feedbacks['slot_high_pass_filter'] = {
 			type: 'boolean',
 			name: 'Transmitter High Pass Filter (Slot)',
-			description: 'If the slot transmitter high pass filter matches the selected cutoff, change the color of the button.',
+			description:
+				'If the slot transmitter high pass filter matches the selected cutoff, change the color of the button.',
 			defaultStyle: {
 				color: combineRgb(0, 0, 0),
 				bgcolor: combineRgb(0, 255, 255),
@@ -689,7 +708,7 @@ export function updateFeedbacks() {
 			options: [this.SLOTS_FIELD, Fields.TxHighPassFilter],
 			callback: ({ options }) => {
 				let slot = options.slot.split(':')
-				let hpfMap = { '000': 'Off', '040': '40 Hz', '080': '80 Hz', '160': '160 Hz', '240': '240 Hz' }
+				let hpfMap = { '000': 'Off', '040': '40 Hz', '080': '80 Hz', 160: '160 Hz', 240: '240 Hz' }
 				let expected = hpfMap[options.value] || options.value
 				return this.api.getSlot(parseInt(slot[0]), parseInt(slot[1])).txHighPassFilter == expected
 			},

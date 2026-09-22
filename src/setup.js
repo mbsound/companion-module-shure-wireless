@@ -83,15 +83,22 @@ export const Choices = {
 		{ id: 'MANUAL', label: 'Manual' },
 		{ id: 'AUTO', label: 'Auto' },
 	],
+	ChannelEncryptionMode: [
+		{ id: 'ON', label: 'On (Axient Digital)' },
+		{ id: 'OFF', label: 'Off (Axient Digital)' },
+		{ id: 'MANUAL', label: 'Manual (ULX-D)' },
+		{ id: 'AUTO', label: 'Auto (ULX-D)' },
+	],
 	LockState: [
 		{ id: 'ON', label: 'Locked' },
 		{ id: 'OFF', label: 'Unlocked' },
 		{ id: 'TOGGLE', label: 'Toggle Lock' },
 	],
 	SlotInputPad: [
-		{ id: '0', label: 'Pad Off (0 dB)' },
-		{ id: '12', label: 'Pad On (-12 dB)' },
-		{ id: 'TOGGLE', label: 'Toggle Pad' },
+		{ id: '0', label: 'Pad On (-12 dB)' },
+		{ id: '12', label: 'Pad Off (0 dB)' },
+		{ id: '24', label: 'Input Boost On (+12 dB)' },
+		{ id: 'TOGGLE', label: 'Toggle Pad (On/Off)' },
 	],
 	SlotPolarity: [
 		{ id: 'POSITIVE', label: 'Positive' },
@@ -296,6 +303,13 @@ export const Fields = {
 		id: 'mode',
 		default: 'MANUAL',
 		choices: Choices.EncryptionMode,
+	},
+	ChannelEncryptionMode: {
+		type: 'dropdown',
+		label: 'Encryption Mode',
+		id: 'mode',
+		default: 'ON',
+		choices: Choices.ChannelEncryptionMode,
 	},
 	LockState: {
 		type: 'dropdown',

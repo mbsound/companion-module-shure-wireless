@@ -1,11 +1,13 @@
 {
 	"name": "shure-wireless",
-	"version": "2.3.1",
+	"version": "2.3.1-experimental.1",
 	"main": "src/index.js",
 	"type": "module",
 	"scripts": {
 		"test": "echo \"Error: no test specified\" && exit 1",
-		"format": "prettier --write ."
+		"format": "prettier --write .",
+		"package": "companion-module-build --prerelease",
+		"package:dev": "companion-module-build --dev --prerelease"
 	},
 	"repository": {
 		"type": "git",

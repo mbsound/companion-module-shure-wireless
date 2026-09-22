@@ -53,6 +53,10 @@ export function updateVariables() {
 			variables.push({ variableId: `${prefix}_encryption_status`, name: `Channel ${i} Encryption Status` })
 		}
 
+		if (this.model.family == 'ad') {
+			variables.push({ variableId: `${prefix}_encryption_mode`, name: `Channel ${i} Encryption Mode` })
+		}
+
 		if (this.model.family == 'ad' || this.model.family == 'ulx' || this.model.family == 'slxplus') {
 			variables.push({ variableId: `${prefix}_interference_status`, name: `Channel ${i} Interference Status` })
 		}
@@ -100,6 +104,9 @@ export function updateVariables() {
 			variables.push({ variableId: `${prefix}_rf_level_b`, name: `Channel ${i} RF Level B` })
 			variables.push({ variableId: `${prefix}_rf_level_c`, name: `Channel ${i} RF Level C` })
 			variables.push({ variableId: `${prefix}_rf_level_d`, name: `Channel ${i} RF Level D` })
+			variables.push({ variableId: `${prefix}_antenna_f2`, name: `Channel ${i} Antenna Status (Frequency 2, FD-C)` })
+			variables.push({ variableId: `${prefix}_rf_level_a_f2`, name: `Channel ${i} RF Level A (Frequency 2, FD-C)` })
+			variables.push({ variableId: `${prefix}_rf_level_b_f2`, name: `Channel ${i} RF Level B (Frequency 2, FD-C)` })
 			variables.push({ variableId: `${prefix}_audio_level`, name: `Channel ${i} Audio Level RMS` })
 			variables.push({ variableId: `${prefix}_audio_level_peak`, name: `Channel ${i} Audio Level Peak` })
 		} else if (this.model.family == 'slx' || this.model.family == 'slxplus') {

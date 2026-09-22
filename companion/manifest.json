@@ -1,12 +1,13 @@
 {
 	"id": "shure-wireless",
-	"name": "shure-wireless",
-	"shortname": "shure-wx",
-	"description": "",
-	"version": "0.0.0",
+	"name": "shure-wireless (EXPERIMENTAL FORK)",
+	"shortname": "shure-wx-experimental",
+	"description": "EXPERIMENTAL community fork of the Shure Wireless module with additional features (ANX4, PSM1000, SLX-D+, and various fixes) not present in the officially bundled module. Not affiliated with or supported by Bitfocus or Shure. Use a distinct version/prerelease build to avoid being confused with the bundled release.",
+	"version": "2.3.1-experimental.1",
+	"isPrerelease": true,
 	"license": "MIT",
-	"repository": "git+https://github.com/bitfocus/companion-module-shure-wireless.git",
-	"bugs": "https://github.com/bitfocus/companion-module-shure-wireless/issues",
+	"repository": "git+https://github.com/mbsound/companion-module-shure-wireless.git",
+	"bugs": "https://github.com/mbsound/companion-module-shure-wireless/issues",
 	"maintainers": [
 		{
 			"name": "Keith Rocheck",

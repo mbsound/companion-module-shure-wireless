@@ -84,6 +84,7 @@ export default class WirelessApi {
 				frequency: '000.000', // (ULX|QLX|AD|SLX) 6, xxx[.]yyy
 				flash: 'OFF', // (AD) OFF - ON
 				encryptionStatus: 'OK', // (AD) OK - ERROR | (ULX+QLD:ENCRYPTION_WARNING) OFF=OK - ON=ERROR
+				encryptionMode: 'Unknown', // (AD:ANX4 channel ENCRYPTION_MODE) ON - OFF | (ULX-D:ANX4 channel ENCRYPTION_MODE) OFF - MANUAL - AUTO
 				interferenceStatus: 'NONE', // (AD) NONE - DETECTED | (ULX:RF_INT_DET) NONE - CRITICAL=DETECTED
 				unregisteredTxStatus: 'OK', // (AD) OK - ERROR
 				fdMode: 'OFF', // (AD) OFF - FD-C - FD-S
@@ -118,6 +119,13 @@ export default class WirelessApi {
 				rfBitmapB: 0, // (AD) 0-255, 8 bit color segment
 				rfBitmapC: 0, // (AD) 0-255, 8 bit color segment
 				rfBitmapD: 0, // (AD) 0-255, 8 bit color segment
+				antennaF2: 'XX', // (AD:FD-C) raw sample, frequency 2 antenna diversity status
+				antennaAF2: 'X', // (AD:FD-C) X - B - R
+				antennaBF2: 'X', // (AD:FD-C) X - B - R
+				rfLevelAF2: -120, // (AD:FD-C) 0-120, -120dBm
+				rfLevelBF2: -120, // (AD:FD-C) 0-120, -120dBm
+				rfBitmapAF2: 0, // (AD:FD-C) 0-255, 8 bit color segment
+				rfBitmapBF2: 0, // (AD:FD-C) 0-255, 8 bit color segment
 				audioLevel: -50, // (ULX|QLX) 0-50,-50dB | (AD|SLX) 0-120,-120dB
 				audioLevelPeak: -120, // (AD|SLX) 0-120,-120dB
 				audioLED: 0, // (AD) 0-255 binary, 1-7=level, 8=OL | (ULX|QLX|SLX) 0-6
@@ -127,8 +135,8 @@ export default class WirelessApi {
 				txType: 'Unknown', // (ULX|QLX) QLXD1 - QLXD2 - ULXD1 - ULXD2 - ULXD6 - ULXD8 - UNKN
 				// ((AD|SLX):TX_MODEL) AD1 - AD2 - ADX1 - ADX1M - ADX2 - ADX2FD - SLXD1 - SLXD2 - UNKNOWN
 				txDeviceId: '', // (ULX+QLX:ULXD6/ULXD8 only) 8 | (AD) 31
-				txOffset: 255, // (ULX|QLX) 0,3,6,9,12,15,18,21 255=UNKN | (AD) 0-32,-12 255=UNKN
-				txInputPad: 255, // (AD) 0=ON(-12), 12=OFF(0), 255=UNKN
+				txOffset: 255, // (ULX|QLX) 0,3,6,9,12,15,18,21 255=UNKN | (AD) 0-33,-12 255=UNKN
+				txInputPad: 255, // (AD) 0=ON(-12), 12=OFF(0), 24=BOOST(+12), 255=UNKN
 				txPowerLevel: 255, // (AD) 0-50mW 255=UNKN | (ULX+QLX:TX_RF_PWR) LOW=1 NORMAL=10 HIGH=20 UNKN=255
 				txPowerMode: 'Unknown', // (ULX+QLX:TX_RF_PWR) UNKNOWN - LOW - NORMAL - HIGH
 				txMuteStatus: 'Unknown', // (ULX|QLX) OFF - ON - UNKN | (AD:TX_MUTE_MODE_STATUS) ON=OFF - MUTE=ON - UNKNOWN
@@ -287,7 +295,7 @@ export default class WirelessApi {
 				txType: 'Unknown', // SLOT_TX_MODEL AD1 - AD2 - ADX1 - ADX1M - ADX2 - ADX2FD - UNKNOWN
 				txDeviceId: '', // SLOT_TX_DEVICE_ID 31
 				txOffset: 255, // SLOT_OFFSET 0-32,-12 255=UNKN
-				txInputPad: 255, // SLOT_INPUT_PAD 0=ON(-12), 12=OFF(0), 255=UNKN
+				txInputPad: 255, // SLOT_INPUT_PAD 0=ON(-12), 12=OFF(0), 24=BOOST(+12), 255=UNKN
 				txPowerLevel: 255, // SLOT_RF_POWER 0-50mW 255=UNKN
 				txPowerMode: 'Unknown', // SLOT_RF_POWER_MODE UNKNOWN - LOW - NORMAL - HIGH
 				txPolarity: 'Unknown', // SLOT_POLARITY POSITIVE - NEGATIVE - UNKNOWN
@@ -324,42 +332,61 @@ export default class WirelessApi {
 		channel.audioLevelPeak = parseInt(sample[5]) - 120
 		channel.audioLevel = parseInt(sample[6]) - 120
 
-		if (channel.fdMode == 'FD-C') {
-			// need to do something here
-		} else {
-			channel.rfLevelA = parseInt(sample[9]) - 120
-			channel.rfBitmapA = parseInt(sample[8])
-			channel.rfLevelB = parseInt(sample[11]) - 120
-			channel.rfBitmapB = parseInt(sample[10])
-			channel.antenna = sample[7]
-			channel.antennaA = sample[7].substr(0, 1)
-			channel.antennaB = sample[7].substr(1, 1)
+		this.instance.setVariableValues({
+			[`${prefix}signal_quality`]: channel.signalQuality,
+			[`${prefix}audio_level`]: channel.audioLevel + (this.instance.config.variableFormat == 'units' ? ' dBFS' : ''),
+			[`${prefix}audio_level_peak`]:
+				channel.audioLevelPeak + (this.instance.config.variableFormat == 'units' ? ' dBFS' : ''),
+		})
+
+		// Frequency 1 (or the only frequency, when FD-C is not active) always occupies the same
+		// sample positions: rfAntStatus, rfBitmapA, rfRssiA, rfBitmapB, rfRssiB.
+		channel.rfLevelA = parseInt(sample[9]) - 120
+		channel.rfBitmapA = parseInt(sample[8])
+		channel.rfLevelB = parseInt(sample[11]) - 120
+		channel.rfBitmapB = parseInt(sample[10])
+		channel.antenna = sample[7]
+		channel.antennaA = sample[7].substr(0, 1)
+		channel.antennaB = sample[7].substr(1, 1)
+
+		this.instance.setVariableValues({
+			[`${prefix}antenna`]: channel.antenna,
+			[`${prefix}rf_level_a`]: channel.rfLevelA + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
+			[`${prefix}rf_level_b`]: channel.rfLevelB + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
+		})
+
+		if (this.receiver.quadversityMode == 'ON' && channel.fdMode != 'FD-C') {
+			// Quadversity (4-antenna diversity) extends the Frequency 1 block with a C/D pair.
+			channel.rfLevelC = parseInt(sample[13]) - 120
+			channel.rfBitmapC = parseInt(sample[12])
+			channel.rfLevelD = parseInt(sample[15]) - 120
+			channel.rfBitmapD = parseInt(sample[14])
+			channel.antennaC = sample[7].substr(2, 1)
+			channel.antennaD = sample[7].substr(3, 1)
+			this.instance.setVariableValues({
+				[`${prefix}rf_level_c`]: channel.rfLevelC + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
+				[`${prefix}rf_level_d`]: channel.rfLevelD + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
+			})
+		} else if (channel.fdMode == 'FD-C' && this.receiver.quadversityMode != 'ON') {
+			// FD-C (Frequency Diversity Combining) appends a second, independent antenna-status
+			// + bitmap/RSSI A/B block for Frequency 2 after the Frequency 1 block.
+			channel.antennaF2 = sample[12]
+			channel.antennaAF2 = sample[12].substr(0, 1)
+			channel.antennaBF2 = sample[12].substr(1, 1)
+			channel.rfBitmapAF2 = parseInt(sample[13])
+			channel.rfLevelAF2 = parseInt(sample[14]) - 120
+			channel.rfBitmapBF2 = parseInt(sample[15])
+			channel.rfLevelBF2 = parseInt(sample[16]) - 120
 
 			this.instance.setVariableValues({
-				[`${prefix}antenna`]: channel.antenna,
-				[`${prefix}signal_quality`]: channel.signalQuality,
-				[`${prefix}rf_level_a`]: channel.rfLevelA + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
-				[`${prefix}rf_level_b`]: channel.rfLevelB + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
-				[`${prefix}audio_level`]: channel.audioLevel + (this.instance.config.variableFormat == 'units' ? ' dBFS' : ''),
-				[`${prefix}audio_level_peak`]:
-					channel.audioLevelPeak + (this.instance.config.variableFormat == 'units' ? ' dBFS' : ''),
+				[`${prefix}antenna_f2`]: channel.antennaF2,
+				[`${prefix}rf_level_a_f2`]: channel.rfLevelAF2 + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
+				[`${prefix}rf_level_b_f2`]: channel.rfLevelBF2 + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
 			})
-
-			if (this.receiver.quadversityMode == 'ON') {
-				channel.rfLevelC = parseInt(sample[13]) - 120
-				channel.rfBitmapC = parseInt(sample[12])
-				channel.rfLevelD = parseInt(sample[15]) - 120
-				channel.rfBitmapD = parseInt(sample[14])
-				channel.antennaC = sample[7].substr(2, 1)
-				channel.antennaD = sample[7].substr(3, 1)
-				this.instance.setVariableValues({
-					[`${prefix}rf_level_c`]: channel.rfLevelC + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
-					[`${prefix}rf_level_d`]: channel.rfLevelD + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
-				})
-			}
-
-			this.instance.checkFeedbacks('audio_peak_clip', 'signal_quality')
 		}
+		// Note: Quadversity + FD-C simultaneously (8-antenna sample) is not parsed here.
+
+		this.instance.checkFeedbacks('audio_peak_clip', 'signal_quality')
 	}
 
 	/**
@@ -625,7 +652,7 @@ export default class WirelessApi {
 			channel.frequency2 = value.substring(0, 3) + '.' + value.substring(3, 6)
 			variable = channel.frequency2 + (this.instance.config.variableFormat == 'units' ? ' MHz' : '')
 			this.instance.setVariableValues({ [`${prefix}frequency2`]: variable })
-		} else if (key.match(/ENCRYPTION/)) {
+		} else if (key == 'ENCRYPTION_STATUS' || key == 'ENCRYPTION_WARNING') {
 			switch (value) {
 				case 'ON':
 					variable = 'ERROR'
@@ -640,6 +667,12 @@ export default class WirelessApi {
 			channel.encryptionStatus = variable
 			this.instance.setVariableValues({ [`${prefix}encryption_status`]: variable })
 			this.instance.checkFeedbacks('encryption_warning')
+		} else if (key == 'ENCRYPTION_MODE') {
+			// Per-channel encryption mode discovery (distinct from ENCRYPTION_STATUS/ENCRYPTION_WARNING,
+			// which report a mismatch/error condition, not whether encryption is enabled).
+			channel.encryptionMode = value
+			this.instance.setVariableValues({ [`${prefix}encryption_mode`]: value })
+			this.instance.checkFeedbacks('channel_encryption_mode')
 		} else if (key == 'RF_INT_DET' || key == 'INTERFERENCE_STATUS') {
 			switch (value) {
 				case 'CRITICAL':
