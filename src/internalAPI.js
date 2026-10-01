@@ -44,6 +44,7 @@ export default class WirelessApi {
 			appConnEnabled: 'OFF', // (SLXplus) OFF - ON
 			numberChannelsLicensed: 0, // (ANX4) 0-24
 			availableChannels: '', // (ANX4) e.g. "{1,2,3,4...}"
+			availableChannelList: undefined, // (ANX4) availableChannels as numbers, undefined until reported
 			transmissionMode: '', // (ANX4) AD_STANDARD, AD_HIGH_DENSITY, ULXD_STANDARD, ULXD_HIGH_DENSITY
 		}
 		this.channels = []
@@ -153,10 +154,11 @@ export default class WirelessApi {
 				batteryRuntime: 65535, // (ULX|QLX) 0+, 65535=UNKN
 				// ((AD|SLX):TX_BATT_MINS) 0+, 65535=UNKN 65534=calcuating 65533=comm warning
 				batteryRuntime2: 'Unknown', // Text representation of batteryRuntime
-				batteryTempF: 255, // (ULX|QLX|AD:TX_BATT_TEMP_F) +40 255=UNKN
-				batteryTempC: 255, // (ULX|QLX|AD:TX_BATT_TEMP_C)  +40 255=UNKN
+				batteryTempF: 255, // (ULX|QLX|AD:TX_BATT_TEMP_F) raw value, actual = raw - 40, 255=UNKN
+				batteryTempC: 255, // (ULX|QLX|AD:TX_BATT_TEMP_C) raw value, actual = raw - 40, 255=UNKN
 				batteryType: 'Unknown', // (ULX|QLX|AD:TX_BATT_TYPE) ALKA - LION - LITH - NIMH - UNKN
-				txRfOutput: 'RF_ON', // (AD) RF_ON - RF_MUTE - Unknown
+				txRfOutput: 'RF_ON', // (AD) RF_ON - RF_MUTE - Unknown, derived from the online ShowLink slots
+				rfRestoreSlots: [], // (AD) slots that had RF on when this module muted the channel
 				linkStatus: 'EMPTY', // (SLXplus) EMPTY - LINKED.INACTIVE - LINKED.ACTIVE
 				linkTxModel: 'Unknown', // (SLXplus)
 				linkTxBattMins: 65535, // (SLXplus)
@@ -251,7 +253,7 @@ export default class WirelessApi {
 			case 'ad':
 				icon = this.icons.getADStatus(
 					image,
-					antenna,
+					antenna !== undefined ? antenna.substring(0, 2) : antenna,
 					audioLED,
 					rfBitmapA,
 					rfBitmapB,
@@ -291,6 +293,7 @@ export default class WirelessApi {
 		if (this.getChannel(channel).slots[id] === undefined) {
 			this.getChannel(channel).slots[id] = {
 				status: 'EMPTY', // SLOT_STATUS EMPTY - STANDARD - LINKED.INACTIVE - LINKED.ACTIVE
+				seen: false, // true once the receiver has reported SLOT_STATUS for this slot
 				showLinkStatus: 255, // SLOT_SHOWLINK_STATUS 1-5,255=UNKN
 				txType: 'Unknown', // SLOT_TX_MODEL AD1 - AD2 - ADX1 - ADX1M - ADX2 - ADX2FD - UNKNOWN
 				txDeviceId: '', // SLOT_TX_DEVICE_ID 31
@@ -325,66 +328,95 @@ export default class WirelessApi {
 	parseADSample(id, data) {
 		let channel = this.getChannel(id)
 		let prefix = 'ch_' + id + '_'
-		let sample = data.split(' ')
+		let sample = data.split(/\s+/)
+		let units = this.instance.config.variableFormat == 'units'
 
-		channel.signalQuality = parseInt(sample[3])
-		channel.audioLED = parseInt(sample[4])
-		channel.audioLevelPeak = parseInt(sample[5]) - 120
-		channel.audioLevel = parseInt(sample[6]) - 120
+		// SAMPLE chNum ALL qual audBitmap audPeak audRms <RF block> [<RF block for frequency 2>]
+		let quality = parseInt(sample[3])
+		let audioLED = parseInt(sample[4])
+		let audioLevelPeak = parseInt(sample[5])
+		let audioLevel = parseInt(sample[6])
+
+		if (isNaN(quality) || isNaN(audioLED) || isNaN(audioLevelPeak) || isNaN(audioLevel)) {
+			// not the Axient Digital sample layout
+			return
+		}
+
+		channel.signalQuality = quality
+		channel.audioLED = audioLED
+		channel.audioLevelPeak = audioLevelPeak - 120
+		channel.audioLevel = audioLevel - 120
 
 		this.instance.setVariableValues({
 			[`${prefix}signal_quality`]: channel.signalQuality,
-			[`${prefix}audio_level`]: channel.audioLevel + (this.instance.config.variableFormat == 'units' ? ' dBFS' : ''),
-			[`${prefix}audio_level_peak`]:
-				channel.audioLevelPeak + (this.instance.config.variableFormat == 'units' ? ' dBFS' : ''),
+			[`${prefix}audio_level`]: channel.audioLevel + (units ? ' dBFS' : ''),
+			[`${prefix}audio_level_peak`]: channel.audioLevelPeak + (units ? ' dBFS' : ''),
 		})
 
-		// Frequency 1 (or the only frequency, when FD-C is not active) always occupies the same
-		// sample positions: rfAntStatus, rfBitmapA, rfRssiA, rfBitmapB, rfRssiB.
-		channel.rfLevelA = parseInt(sample[9]) - 120
-		channel.rfBitmapA = parseInt(sample[8])
-		channel.rfLevelB = parseInt(sample[11]) - 120
-		channel.rfBitmapB = parseInt(sample[10])
-		channel.antenna = sample[7]
-		channel.antennaA = sample[7].substr(0, 1)
-		channel.antennaB = sample[7].substr(1, 1)
+		// An RF block is the antenna status followed by a bitmap/RSSI pair per antenna: two
+		// pairs normally, four with Quadversity. FD-C appends a second block for frequency 2.
+		// Reading the layout from the sample itself keeps this right for ANX4, where
+		// Quadversity is set per channel, and during mode changes.
+		let blocks = []
+		let i = 7
 
-		this.instance.setVariableValues({
-			[`${prefix}antenna`]: channel.antenna,
-			[`${prefix}rf_level_a`]: channel.rfLevelA + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
-			[`${prefix}rf_level_b`]: channel.rfLevelB + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
-		})
+		while (i < sample.length && /^[A-Z]+$/.test(sample[i])) {
+			let block = { antenna: sample[i++], rf: [] }
+			while (i + 1 < sample.length && /^\d+$/.test(sample[i]) && /^\d+$/.test(sample[i + 1])) {
+				block.rf.push({ bitmap: parseInt(sample[i]), level: parseInt(sample[i + 1]) - 120 })
+				i += 2
+			}
+			blocks.push(block)
+		}
 
-		if (this.receiver.quadversityMode == 'ON' && channel.fdMode != 'FD-C') {
-			// Quadversity (4-antenna diversity) extends the Frequency 1 block with a C/D pair.
-			channel.rfLevelC = parseInt(sample[13]) - 120
-			channel.rfBitmapC = parseInt(sample[12])
-			channel.rfLevelD = parseInt(sample[15]) - 120
-			channel.rfBitmapD = parseInt(sample[14])
-			channel.antennaC = sample[7].substr(2, 1)
-			channel.antennaD = sample[7].substr(3, 1)
+		let f1 = blocks[0]
+		let f2 = blocks[1]
+
+		if (f1 !== undefined && f1.rf.length >= 2) {
+			channel.rfLevelA = f1.rf[0].level
+			channel.rfBitmapA = f1.rf[0].bitmap
+			channel.rfLevelB = f1.rf[1].level
+			channel.rfBitmapB = f1.rf[1].bitmap
+			channel.antenna = f1.antenna
+			channel.antennaA = f1.antenna.substr(0, 1)
+			channel.antennaB = f1.antenna.substr(1, 1)
+
 			this.instance.setVariableValues({
-				[`${prefix}rf_level_c`]: channel.rfLevelC + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
-				[`${prefix}rf_level_d`]: channel.rfLevelD + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
+				[`${prefix}antenna`]: channel.antenna,
+				[`${prefix}rf_level_a`]: channel.rfLevelA + (units ? ' dBm' : ''),
+				[`${prefix}rf_level_b`]: channel.rfLevelB + (units ? ' dBm' : ''),
 			})
-		} else if (channel.fdMode == 'FD-C' && this.receiver.quadversityMode != 'ON') {
-			// FD-C (Frequency Diversity Combining) appends a second, independent antenna-status
-			// + bitmap/RSSI A/B block for Frequency 2 after the Frequency 1 block.
-			channel.antennaF2 = sample[12]
-			channel.antennaAF2 = sample[12].substr(0, 1)
-			channel.antennaBF2 = sample[12].substr(1, 1)
-			channel.rfBitmapAF2 = parseInt(sample[13])
-			channel.rfLevelAF2 = parseInt(sample[14]) - 120
-			channel.rfBitmapBF2 = parseInt(sample[15])
-			channel.rfLevelBF2 = parseInt(sample[16]) - 120
+
+			if (f1.rf.length >= 4) {
+				channel.rfLevelC = f1.rf[2].level
+				channel.rfBitmapC = f1.rf[2].bitmap
+				channel.rfLevelD = f1.rf[3].level
+				channel.rfBitmapD = f1.rf[3].bitmap
+				channel.antennaC = f1.antenna.substr(2, 1)
+				channel.antennaD = f1.antenna.substr(3, 1)
+
+				this.instance.setVariableValues({
+					[`${prefix}rf_level_c`]: channel.rfLevelC + (units ? ' dBm' : ''),
+					[`${prefix}rf_level_d`]: channel.rfLevelD + (units ? ' dBm' : ''),
+				})
+			}
+		}
+
+		if (f2 !== undefined && f2.rf.length >= 2) {
+			channel.antennaF2 = f2.antenna
+			channel.antennaAF2 = f2.antenna.substr(0, 1)
+			channel.antennaBF2 = f2.antenna.substr(1, 1)
+			channel.rfBitmapAF2 = f2.rf[0].bitmap
+			channel.rfLevelAF2 = f2.rf[0].level
+			channel.rfBitmapBF2 = f2.rf[1].bitmap
+			channel.rfLevelBF2 = f2.rf[1].level
 
 			this.instance.setVariableValues({
 				[`${prefix}antenna_f2`]: channel.antennaF2,
-				[`${prefix}rf_level_a_f2`]: channel.rfLevelAF2 + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
-				[`${prefix}rf_level_b_f2`]: channel.rfLevelBF2 + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
+				[`${prefix}rf_level_a_f2`]: channel.rfLevelAF2 + (units ? ' dBm' : ''),
+				[`${prefix}rf_level_b_f2`]: channel.rfLevelBF2 + (units ? ' dBm' : ''),
 			})
 		}
-		// Note: Quadversity + FD-C simultaneously (8-antenna sample) is not parsed here.
 
 		this.instance.checkFeedbacks('audio_peak_clip', 'signal_quality')
 	}
@@ -400,7 +432,11 @@ export default class WirelessApi {
 	parseSLXSample(id, data) {
 		let channel = this.getChannel(id)
 		let prefix = 'ch_' + id + '_'
-		let sample = data.split(' ')
+		let sample = data.split(/\s+/)
+
+		if (sample.length < 6 || isNaN(parseInt(sample[3])) || isNaN(parseInt(sample[4])) || isNaN(parseInt(sample[5]))) {
+			return
+		}
 
 		channel.audioLevelPeak = parseInt(sample[3]) - 120
 		channel.audioLevel = parseInt(sample[4]) - 120
@@ -461,7 +497,11 @@ export default class WirelessApi {
 	parseULXSample(id, data) {
 		let channel = this.getChannel(id)
 		let prefix = 'ch_' + id + '_'
-		let sample = data.split(' ')
+		let sample = data.split(/\s+/)
+
+		if (sample.length < 6 || isNaN(parseInt(sample[4])) || isNaN(parseInt(sample[5]))) {
+			return
+		}
 
 		switch (sample[3]) {
 			case 'AX':
@@ -545,10 +585,12 @@ export default class WirelessApi {
 		}
 
 		if (key == 'CHAN_NAME') {
-			channel.name = value.replace('{', '').replace('}', '').trim()
+			variable = value.replace('{', '').replace('}', '').trim()
+			if (channel.name != variable) {
+				channel.name = variable
+				this.instance.scheduleDefinitionsUpdate()
+			}
 			this.instance.setVariableValues({ [`${prefix}name`]: channel.name })
-			this.instance.updateActions()
-			this.instance.updateFeedbacks()
 		} else if (key == 'METER_RATE') {
 			channel.meterRate = parseInt(value)
 			if (channel.meterRate == 0) {
@@ -643,13 +685,13 @@ export default class WirelessApi {
 			})
 		} else if (key == 'FREQUENCY') {
 			value = '' + parseInt(value)
-			channel.frequency = value.substring(0, 3) + '.' + value.substring(3, 6)
+			channel.frequency = value.slice(0, -3) + '.' + value.slice(-3)
 			variable = channel.frequency + (this.instance.config.variableFormat == 'units' ? ' MHz' : '')
 			this.instance.setVariableValues({ [`${prefix}frequency`]: variable })
 			this.instance.checkFeedbacks('channel_frequency')
 		} else if (key == 'FREQUENCY2') {
 			value = '' + parseInt(value)
-			channel.frequency2 = value.substring(0, 3) + '.' + value.substring(3, 6)
+			channel.frequency2 = value.slice(0, -3) + '.' + value.slice(-3)
 			variable = channel.frequency2 + (this.instance.config.variableFormat == 'units' ? ' MHz' : '')
 			this.instance.setVariableValues({ [`${prefix}frequency2`]: variable })
 		} else if (key == 'ENCRYPTION_STATUS' || key == 'ENCRYPTION_WARNING') {
@@ -686,8 +728,8 @@ export default class WirelessApi {
 			this.instance.setVariableValues({ [`${prefix}interference_status`]: variable })
 			this.instance.checkFeedbacks('interference_status')
 		} else if (key == 'INTERFERENCE_STATUS2') {
-			channel.interferenceStatus = value
-			this.instance.setVariableValues({ [`${prefix}interference_status`]: value })
+			channel.interferenceStatus2 = value
+			this.instance.setVariableValues({ [`${prefix}interference_status2`]: value })
 		} else if (key == 'FLASH') {
 			channel.flash = value
 			//this.instance.setVariableValues({[`${prefix}flash`]: value});
@@ -830,7 +872,12 @@ export default class WirelessApi {
 			this.instance.setVariableValues({ [`${prefix}tx_input_pad`]: variable })
 		} else if (key == 'TX_POWER_LEVEL') {
 			channel.txPowerLevel = parseInt(value)
-			if (channel.txPowerLevel == 255) {
+			if (isNaN(channel.txPowerLevel)) {
+				// ULX-D transmitters report LOW - NORMAL - HIGH - UNKNOWN instead of mW
+				channel.txPowerLevel = 255
+				channel.txPowerMode = value
+				variable = value
+			} else if (channel.txPowerLevel == 255) {
 				variable = 'Unknown'
 			} else {
 				variable = channel.txPowerLevel + (this.instance.config.variableFormat == 'units' ? ' mW' : '')
@@ -860,6 +907,12 @@ export default class WirelessApi {
 				this.instance.setVariableValues({ [`${prefix}tx_power_level`]: variable })
 			}
 			this.instance.setVariableValues({ [`${prefix}tx_power_mode`]: value })
+		} else if (key == 'TX_POWER_SOURCE') {
+			channel.txPowerSource = value
+			this.instance.setVariableValues({ [`${prefix}tx_power_source`]: value })
+		} else if (key == 'RF_BAND') {
+			// ANX4 reports the band per channel
+			this.updateReceiver(key, value)
 		} else if (key == 'TX_POLARITY') {
 			channel.txPolarity = value
 			this.instance.setVariableValues({ [`${prefix}tx_polarity`]: value })
@@ -918,7 +971,7 @@ export default class WirelessApi {
 			if (channel.batteryTempC == 255) {
 				variable = 'Unknown'
 			} else {
-				variable = channel.batteryTempC + 40 + (this.instance.config.variableFormat == 'units' ? '°' : '')
+				variable = channel.batteryTempC - 40 + (this.instance.config.variableFormat == 'units' ? '°' : '')
 			}
 			this.instance.setVariableValues({ [`${prefix}battery_temp_c`]: variable })
 		} else if (key.match(/BATT_TEMP_F/)) {
@@ -926,7 +979,7 @@ export default class WirelessApi {
 			if (channel.batteryTempF == 255) {
 				variable = 'Unknown'
 			} else {
-				variable = channel.batteryTempF + 40 + (this.instance.config.variableFormat == 'units' ? '°' : '')
+				variable = channel.batteryTempF - 40 + (this.instance.config.variableFormat == 'units' ? '°' : '')
 			}
 			this.instance.setVariableValues({ [`${prefix}battery_temp_f`]: variable })
 		} else if (key.match(/BATT_TYPE/)) {
@@ -1023,6 +1076,10 @@ export default class WirelessApi {
 	 * @since 1.0.0
 	 */
 	updateReceiver(key, value) {
+		if (typeof key !== 'string') {
+			return
+		}
+
 		if (value == 'UNKN' || value == 'UNKNOWN') {
 			value = 'Unknown'
 		}
@@ -1045,6 +1102,7 @@ export default class WirelessApi {
 			if (key == 'TRANSMISSION_MODE') {
 				this.receiver.transmissionMode = value
 				this.instance.setVariableValues({ transmission_mode: value })
+				this.instance.querySupplemental()
 			}
 
 			if (value == 'STANDARD' || value == 'AD_STANDARD' || value == 'ULXD_STANDARD') {
@@ -1072,11 +1130,11 @@ export default class WirelessApi {
 			this.instance.setVariableValues({ quadversity_mode: value })
 			this.instance.checkFeedbacks('quadversity_active')
 		} else if (key == 'MODEL') {
-			this.receiver.model = value
-			this.instance.setVariableValues({ model: value })
+			this.receiver.model = value.replace('{', '').replace('}', '').trim()
+			this.instance.setVariableValues({ model: this.receiver.model })
 		} else if (key == 'RF_BAND') {
-			this.receiver.rfBand = value
-			this.instance.setVariableValues({ rf_band: value })
+			this.receiver.rfBand = value.replace('{', '').replace('}', '').trim()
+			this.instance.setVariableValues({ rf_band: this.receiver.rfBand })
 		} else if (key == 'LOCK_STATUS') {
 			this.receiver.lockStatus = value
 			this.instance.setVariableValues({ lock_status: value })
@@ -1099,8 +1157,38 @@ export default class WirelessApi {
 			this.instance.setVariableValues({ number_channels_licensed: this.receiver.numberChannelsLicensed })
 		} else if (key == 'AVAILABLE_CHANNELS') {
 			this.receiver.availableChannels = value.replace('{', '').replace('}', '').trim()
+			this.receiver.availableChannelList = (value.match(/\d+/g) || []).map((ch) => parseInt(ch))
 			this.instance.setVariableValues({ available_channels: this.receiver.availableChannels })
+			this.instance.querySupplemental()
 		}
+	}
+
+	/**
+	 * Derive the RF output state of a channel from its online ShowLink transmitters:
+	 * RF_ON if any of them is transmitting, RF_MUTE if all of them are muted.
+	 * Empty, standard and offline slots report UNKNOWN and say nothing about the channel.
+	 *
+	 * @param {number} id - the channel id
+	 * @access public
+	 * @since 2.3.2
+	 */
+	updateChannelRfOutput(id) {
+		let channel = this.getChannel(id)
+		let active = channel.slots.filter((slot) => slot && slot.status == 'LINKED.ACTIVE')
+		let value = 'Unknown'
+		let variable = 'Unknown'
+
+		if (active.some((slot) => slot.txRfOutput == 'RF_ON')) {
+			value = 'RF_ON'
+			variable = 'ON'
+		} else if (active.some((slot) => slot.txRfOutput == 'RF_MUTE')) {
+			value = 'RF_MUTE'
+			variable = 'MUTE'
+		}
+
+		channel.txRfOutput = value
+		this.instance.setVariableValues({ [`ch_${id}_tx_rf_output`]: variable })
+		this.instance.checkFeedbacks('channel_rf_muted', 'sample')
 	}
 
 	/**
@@ -1114,6 +1202,10 @@ export default class WirelessApi {
 	 * @since 1.0.0
 	 */
 	updateSlot(channel, id, key, value) {
+		if (isNaN(id) || id < 1) {
+			return
+		}
+
 		let slot = this.getSlot(channel, id)
 		id = id < 10 ? '0' + id : id
 		let prefix = `slot_${channel}-${id}_`
@@ -1126,8 +1218,10 @@ export default class WirelessApi {
 		switch (key) {
 			case 'SLOT_STATUS':
 				slot.status = value
+				slot.seen = true
 				this.instance.setVariableValues({ [`${prefix}status`]: value })
 				this.instance.checkFeedbacks('slot_status', 'slot_is_active')
+				this.updateChannelRfOutput(channel)
 				break
 			case 'SLOT_SHOWLINK_STATUS':
 				slot.showLinkStatus = parseInt(value)
@@ -1146,10 +1240,12 @@ export default class WirelessApi {
 				})
 				break
 			case 'SLOT_TX_DEVICE_ID':
-				slot.txDeviceId = value.replace('{', '').replace('}', '').trim()
+				variable = value.replace('{', '').replace('}', '').trim()
+				if (slot.txDeviceId != variable) {
+					slot.txDeviceId = variable
+					this.instance.scheduleDefinitionsUpdate()
+				}
 				this.instance.setVariableValues({ [`${prefix}tx_device_id`]: slot.txDeviceId })
-				this.instance.updateActions()
-				this.instance.updateFeedbacks()
 				this.instance.checkFeedbacks('slot_is_active')
 				break
 			case 'SLOT_OFFSET':
@@ -1202,18 +1298,7 @@ export default class WirelessApi {
 					[`${prefix}tx_rf_output`]: variable,
 				})
 				this.instance.checkFeedbacks('slot_rf_output')
-
-				let ch = this.getChannel(channel)
-				if (
-					slot.status == 'STANDARD' ||
-					slot.status == 'LINKED.ACTIVE' ||
-					(ch.txDeviceId != '' && ch.txDeviceId == slot.txDeviceId) ||
-					parseInt(id) == 1
-				) {
-					ch.txRfOutput = value
-					this.instance.setVariableValues({ [`ch_${channel}_tx_rf_output`]: variable })
-					this.instance.checkFeedbacks('channel_rf_muted')
-				}
+				this.updateChannelRfOutput(channel)
 				break
 			case 'SLOT_BATT_BARS':
 				slot.batteryBars = parseInt(value)

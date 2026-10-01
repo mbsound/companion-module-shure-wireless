@@ -46,7 +46,7 @@ The standard bundled module has no support for SLX-D+ receivers. This module add
 
 - **Slot Audio Offset**: Adjust transmitter slot offset (-12 dB to +21 dB) with direct set, increment, and decrement actions.
 - **Input Pad and Polarity**: Toggle or set transmitter input pad (0 dB / -12 dB) and audio polarity (positive / negative) for ADX1 and ADX1M transmitters.
-- **Transmission Mode**: Switch between Standard Mode and High Density Mode with actions and feedbacks.
+- **Transmission Mode**: Live variable and feedback for Standard / High Density mode (the receiver only reports this setting over command strings; it cannot be changed remotely).
 - **Quadversity and Diversity Telemetry**: Antenna levels for antennas C and D, Quadversity mode feedback, and Frequency Diversity mode indicators.
 - **Signal Quality Alert**: Feedback that triggers if digital signal quality drops below a user-selected threshold.
 - **Unregistered Transmitter Detection**: Alerts if an unrecognized transmitter attempts to sync to an active channel.
@@ -85,10 +85,10 @@ Full integration for Shure's next-generation **ANX4 Multi-Channel Receiver**:
 - **Massive Channel Scaling**: Supports up to **16 channels** in Axient Digital transmission mode and up to **24 channels** in ULX-D transmission mode, with 8 ShowLink transmitter slots per Axient Digital channel (up to 128 total ShowLink slots tracked).
 - **Dynamic Channel Licensing & Availability**: Automatic polling and live variables for `number_channels_licensed` (0–24) and `available_channels` (reporting active, non-eclipsed channels when FD-C or Quadversity is in use).
 - **Multi-Standard Transmission Modes**: Live discovery and variables for `transmission_mode` (`AD_STANDARD`, `AD_HIGH_DENSITY`, `ULXD_STANDARD`, `ULXD_HIGH_DENSITY`).
-- **Antenna Configuration**: Per-channel selection and feedback for antenna distribution (`AUTOMATIC`, `AB`, `CD`, `QUADVERSITY`).
-- **Plug-On Transmitter Controls (AD3 / ADX3)**:
-  - **Phantom Power**: Remotely monitor and control transmitter phantom power (`Off`, `+12V`, `+48V`) via actions, feedbacks, variables, and button labels.
-  - **High Pass Filter (HPF)**: Remotely monitor and control transmitter high-pass filter cutoffs (`Off`, `40 Hz`, `80 Hz`, `160 Hz`, `240 Hz`) via actions, feedbacks, variables, and button labels.
+- **Antenna Configuration**: Per-channel variable, feedback, and button label for antenna distribution (`AUTOMATIC`, `AB`, `CD`, `QUADVERSITY`). Read-only over command strings.
+- **Plug-On Transmitter Monitoring (AD3 / ADX3)**:
+  - **Phantom Power**: Monitor transmitter phantom power (`Off`, `+12V`, `+48V`) via feedbacks, variables, and button labels.
+  - **High Pass Filter (HPF)**: Monitor transmitter high-pass filter cutoffs (`Off`, `40 Hz`, `80 Hz`, `160 Hz`, `240 Hz`) via feedbacks, variables, and button labels.
 - **Expanded Transmitter Ecosystem**: Native support for AD3, ADX3, ADTD, ADTQ, and Q5X transmitters.
 
 ---
@@ -174,6 +174,20 @@ During development and code auditing of the standard bundled module, several bug
 
 ---
 
+## Changes in 2.3.2-experimental.1
+
+Stability and correctness release, checked against the Shure AD4 and ANX4 command string manuals.
+
+- **No more connect flood**: startup queries are sent one at a time, 20 ms apart, instead of ~590 commands in a single burst on ANX4. Per-channel follow-up queries are only sent for channels the receiver reports as available, and slot queries (using slot `0` = all slots of a channel) only for the 16 Axient Digital channels in an Axient Digital transmission mode.
+- **Module no longer exits** when the receiver goes offline, resets the connection, or sends a string the module does not expect (short `SAMPLE`, bare `REP`).
+- **Safe channel RF mute / unmute**: toggling is based on the transmitters that are actually online, and unmuting only restores the slots that were on air, so a muted spare sharing the channel's frequency is not switched on. The "Channel RF Muted" feedback is true when all online linked transmitters on the channel are muted.
+- **Follows the manual for SET commands**: the actions for transmission mode, antenna configuration, slot phantom power, and slot high pass filter were removed, because those properties are GET-only. Buttons using them will show a missing action. Channel names (AD / ANX4) and transmitter device IDs are limited to the 8 characters the receiver accepts.
+- **Input validation**: invalid action values are rejected and logged instead of being sent; `{ } < >` are not allowed in names.
+- **Parsing fixes**: per-channel Quadversity and Quadversity + FD-C samples, frequencies of 1 GHz and above, frequency 2 interference status, battery temperature offset (reported value − 40), `GROUP_CHANNEL {g,c}` syntax on Axient Digital, ULX-D transmitter power level on ANX4.
+- **Lighter on Companion**: action / feedback definitions and variable updates are batched.
+
+---
+
 ## Comprehensive Comparison: Shure ANX4 vs. Axient Digital (AD4D / AD4Q)
 
 The Shure **ANX4 Multi-Channel Receiver** represents the evolution of Shure's flagship digital wireless platform. While it builds directly upon the proven command string architecture of **Axient Digital (AD4D and AD4Q)**, ANX4 introduces architectural, operational, and protocol advancements designed for large-scale enterprise, broadcast, and theatrical RF deployments.
@@ -216,25 +230,25 @@ In wireless systems utilizing advanced RF redundancy (such as **Frequency Divers
 ### 4. Antenna Matrix Architecture & Per-Channel Routing
 
 - **AD4D / AD4Q**: Feature fixed physical BNC antenna inputs (A and B on AD4D; A, B, C, D on AD4Q). Quadversity is a global receiver mode toggle (`QUADVERSITY_MODE ON/OFF`) affecting paired channels 1+2 and 3+4.
-- **ANX4**: Implements a flexible internal antenna distribution matrix. Each channel can be independently assigned to specific antenna pairs or Quadversity reception via `< SET/GET x ANTENNA_CONFIGURATION >`:
+- **ANX4**: Implements a flexible internal antenna distribution matrix. Each channel can be independently assigned to specific antenna pairs or Quadversity reception, reported via `< GET x ANTENNA_CONFIGURATION >`:
   - `AUTOMATIC`: System selects optimal antenna routing.
   - `AB`: Channel receives exclusively from Antenna Pair A/B.
   - `CD`: Channel receives exclusively from Antenna Pair C/D.
   - `QUADVERSITY`: Channel receives from all four antennas (A, B, C, and D) simultaneously for maximum RF reliability in harsh environments.
-- This module provides direct actions, feedbacks, button display labels, and variables for `antenna_configuration`.
+- This module provides feedbacks, button display labels, and variables for `antenna_configuration`. The ANX4 command strings only allow this setting to be read, so there is no action to change it.
 
 ### 5. Plug-On Transmitter Support (AD3 & ADX3) with Remote ShowLink Control
 
 ANX4 expands the supported transmitter family to include the Shure **AD3** (standard) and **ADX3** (ShowLink-enabled) plug-on transmitters used extensively in ENG, broadcast, and film production:
 
 - **Transmitter Phantom Power**:
-  - Remotely monitor and control phantom power supplied to condenser microphones connected to the plug-on transmitter.
+  - Remotely monitor phantom power supplied to condenser microphones connected to the plug-on transmitter.
   - States: `Off` (`0000`), `+12V` (`012`), and `+48V` (`048`).
-  - Supported via direct channel queries (`TX_PHANTOM_POWER`), ShowLink slot control (`SLOT_PHANTOM_POWER`), dedicated Companion actions, button status labels, feedbacks, and dynamic variables.
+  - Supported via direct channel queries (`TX_PHANTOM_POWER`), ShowLink slot queries (`SLOT_PHANTOM_POWER`), button status labels, feedbacks, and dynamic variables. Read-only over command strings.
 - **Transmitter High-Pass Filter (HPF)**:
-  - Remotely monitor and control low-cut rumble filtering directly on the transmitter.
+  - Remotely monitor low-cut rumble filtering on the transmitter.
   - Cutoff frequencies: `Off` (`000`), `40 Hz` (`040`), `80 Hz` (`080`), `160 Hz` (`160`), and `240 Hz` (`240`).
-  - Supported via channel queries (`TX_HIGH_PASS_FILTER`), ShowLink slot actions (`SLOT_HIGH_PASS_FILTER`), button status labels, feedbacks, and dynamic variables.
+  - Supported via channel queries (`TX_HIGH_PASS_FILTER`), ShowLink slot queries (`SLOT_HIGH_PASS_FILTER`), button status labels, feedbacks, and dynamic variables. Read-only over command strings.
 - **Expanded Transmitter Model Lineup**:
   - AD4 original lineup: `AD1`, `AD2`, `ADX1`, `ADX1M`, `ADX2`, `ADX2FD`.
   - ANX4 enhanced lineup adds: `AD3`, `ADX3`, `ADTD` (dual-handheld transmitter), `ADTQ` (quad-channel handheld transmitter), and `Q5X` (specialty player mic transmitters).
@@ -251,7 +265,7 @@ ANX4 expands the supported transmitter family to include the Shure **AD3** (stan
 | **Antenna Configuration**       | Global Quadversity mode toggle       | Per-channel routing (`AB`, `CD`, `AUTOMATIC`, `QUADVERSITY`)     |
 | **ShowLink Slots per Channel**  | 8 slots                              | 8 slots per AD channel (up to 128 slots per chassis)             |
 | **ShowLink Slot Batch Query**   | Slot by slot                         | Optimized multi-slot discovery (`SLOT_STATUS 0`)                 |
-| **AD3 / ADX3 Plug-On Support**  | Partial (unsupported in legacy docs) | Full: Remote Phantom Power (+12V/+48V) & HPF (40–240Hz)          |
+| **AD3 / ADX3 Plug-On Support**  | Partial (unsupported in legacy docs) | Phantom Power (+12V/+48V) & HPF (40–240Hz) monitoring            |
 | **Specialty Transmitters**      | Standard AD/ADX series               | Native recognition for `ADTD`, `ADTQ`, `Q5X`, `AD3`, `ADX3`      |
 | **Dante Digital Audio**         | Dual redundant ports (Dante / AES67) | High-capacity Dante / AES67 network interface                    |
 
@@ -263,11 +277,11 @@ ANX4 expands the supported transmitter family to include the Shure **AD3** (stan
 - **Target Port**: Default is `2202`.
 - **Model Type**: Select your receiver model from the dropdown.
 - **Enable Metering**: Enables continuous background polling of audio and RF meters.
-- **Metering Interval**: Rate in milliseconds at which the receiver sends meter updates (default is 5000 ms; recommended 500–5000 ms).
+- **Metering Interval**: Rate in milliseconds at which the receiver sends meter updates (default is 5000 ms; recommended 500–5000 ms; accepted range 100–65535 ms on Axient Digital / ANX4, 100–99999 ms elsewhere).
 - **Variable Format**: Choose between "Include Units" (e.g. `+3 dB`, `470.200 MHz`) or "Numeric Only" (`3`, `470200`).
 
 ---
 
 ## License
 
-MIT License. See [LICENSE](file:///Users/mattbell/Documents/Shure%20Companion%20Module/LICENSE) for details.
+MIT License. See [LICENSE](LICENSE) for details.

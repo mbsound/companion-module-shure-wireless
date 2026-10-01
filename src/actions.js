@@ -1,6 +1,99 @@
 import { Fields, Regex } from './setup.js'
 
 /**
+ * INTERNAL: mute or unmute the RF output of the ShowLink transmitters on a channel.
+ *
+ * Several transmitters can be linked to one channel (typically a main and an RF muted
+ * spare on the same frequency), so "RF on" must never be sent to every slot blindly.
+ * Muting remembers which slots were transmitting; unmuting only restores those.
+ *
+ * @param {Object} self - the module instance
+ * @param {number} channel - the channel, 0 for all channels
+ * @param {string} onoff - RF_ON, RF_MUTE or TOGGLE
+ * @access protected
+ * @since 2.3.2
+ */
+function setChannelRfOutput(self, channel, onoff) {
+	let state = []
+
+	for (let i = 1; i <= self.model.channels; i++) {
+		if (channel == 0 || channel == i) {
+			let ch = self.api.getChannel(i)
+			let active = []
+			let on = []
+			let known = false
+
+			ch.slots.forEach((slot, id) => {
+				known = known || slot.seen === true
+				if (slot.status == 'LINKED.ACTIVE') {
+					active.push(id)
+					if (slot.txRfOutput == 'RF_ON') {
+						on.push(id)
+					}
+				}
+			})
+
+			state.push({ id: i, ch: ch, active: active, on: on, known: known })
+		}
+	}
+
+	if (!state.some((s) => s.known)) {
+		// No slot has been reported yet, so there is nothing to decide with.
+		if (onoff === 'TOGGLE') {
+			self.log('warn', 'RF toggle ignored: the transmitter slot states are not known yet')
+		} else {
+			self.sendCommand(`SET ${channel} SLOT_RF_OUTPUT 0 ${onoff}`)
+		}
+		return
+	}
+
+	if (onoff === 'TOGGLE') {
+		if (!state.some((s) => s.active.length > 0)) {
+			self.log('warn', 'RF toggle ignored: no linked transmitter is online')
+			return
+		}
+		onoff = state.some((s) => s.on.length > 0) ? 'RF_MUTE' : 'RF_ON'
+	}
+
+	if (onoff === 'RF_MUTE') {
+		for (let s of state) {
+			if (s.on.length > 0) {
+				s.ch.rfRestoreSlots = s.on
+			}
+		}
+		// slot 0 addresses all slots of the channel, channel 0 all channels
+		self.sendCommand(`SET ${channel} SLOT_RF_OUTPUT 0 RF_MUTE`)
+		return
+	}
+
+	for (let s of state) {
+		if (s.active.length == 0 || s.on.length > 0) {
+			// nothing to unmute, or the channel already has a transmitter on air
+			continue
+		}
+
+		let restore = s.ch.rfRestoreSlots.filter((id) => s.active.includes(id))
+
+		if (restore.length == 0 && s.active.length == 1) {
+			restore = s.active
+		}
+
+		if (restore.length == 0) {
+			self.log(
+				'warn',
+				`Channel ${s.id}: ${s.active.length} linked transmitters are RF muted and it is not known which one was on air. Use "Set slot RF output" to unmute the right one.`
+			)
+			continue
+		}
+
+		s.ch.rfRestoreSlots = []
+		for (let id of restore) {
+			self.sendCommand(`SET ${s.id} SLOT_RF_OUTPUT ${id} RF_ON`)
+		}
+	}
+}
+
+/**
  * INTERNAL: Set the available actions.
  *
  * @access protected
@@ -16,7 +109,12 @@ export function updateActions() {
 		options: [this.CHANNELS_FIELD, Fields.Name],
 		callback: async (event, context) => {
 			const options = event.options
-			let name = await this.parseActionOption(event, 'name', context, Regex.Name)
+			let name = await this.parseActionOption(
+				event,
+				'name',
+				context,
+				this.model.family === 'ad' ? Regex.ShortName : Regex.Name
+			)
 			if (name) {
 				this.sendCommand(`SET ${options.channel} CHAN_NAME {${name}}`)
 			}
@@ -40,14 +138,19 @@ export function updateActions() {
 		options: [this.CHANNELS_FIELD, Fields.Group, Fields.ChannelNum],
 		callback: async (event, context) => {
 			const options = event.options
-			let group = await this.parseActionOption(event, 'group', context)
-			let channel = await this.parseActionOption(event, 'channel_num', context)
+			let group = await this.parseActionOption(event, 'group', context, Regex.GroupChanPart)
+			let channel = await this.parseActionOption(event, 'channel_num', context, Regex.GroupChanPart)
 			if (group && channel) {
-				let cmd =
-					this.model.family === 'ulx' || this.model.family === 'qlx' || this.model.family === 'psm'
-						? 'GROUP_CHAN'
-						: 'GROUP_CHANNEL'
-				this.sendCommand(`SET ${options.channel} ${cmd} ${group},${channel}`)
+				if (this.model.family === 'ad') {
+					// Axient Digital takes the pair as a string: < SET x GROUP_CHANNEL {6,100} >
+					this.sendCommand(`SET ${options.channel} GROUP_CHANNEL {${group},${channel}}`)
+				} else {
+					let cmd =
+						this.model.family === 'ulx' || this.model.family === 'qlx' || this.model.family === 'psm'
+							? 'GROUP_CHAN'
+							: 'GROUP_CHANNEL'
+					this.sendCommand(`SET ${options.channel} ${cmd} ${group},${channel}`)
+				}
 			}
 		},
 	}
@@ -69,9 +172,8 @@ export function updateActions() {
 			callback: async (event, context) => {
 				const options = event.options
 				let gainValue = await this.parseActionOption(event, 'gain', context, Regex.GainSet)
-				if (gainValue) {
-					gainValue = 18 + parseInt(gainValue)
-					this.sendCommand(`SET ${options.channel} AUDIO_GAIN ${gainValue}`)
+				if (gainValue !== null) {
+					this.sendCommand(`SET ${options.channel} AUDIO_GAIN ${gainValue + 18}`)
 				}
 			},
 		}
@@ -82,7 +184,7 @@ export function updateActions() {
 			callback: async (event, context) => {
 				const options = event.options
 				let gainIncrement = await this.parseActionOption(event, 'gain', context, Regex.GainIncrement)
-				if (gainIncrement) {
+				if (gainIncrement !== null) {
 					this.sendCommand(`SET ${options.channel} AUDIO_GAIN INC ${gainIncrement}`)
 				}
 			},
@@ -94,7 +196,7 @@ export function updateActions() {
 			callback: async (event, context) => {
 				const options = event.options
 				let gainIncrement = await this.parseActionOption(event, 'gain', context, Regex.GainIncrement)
-				if (gainIncrement) {
+				if (gainIncrement !== null) {
 					this.sendCommand(`SET ${options.channel} AUDIO_GAIN DEC ${gainIncrement}`)
 				}
 			},
@@ -141,14 +243,10 @@ export function updateActions() {
 			tooltip: 'Remotely mutes or unmutes transmitter RF output via ShowLink for the selected channel',
 			options: [this.CHANNELS_A_FIELD, Fields.RfOutput],
 			callback: async ({ options }) => {
-				let onoff = options.onoff
 				let chNum = parseInt(options.channel)
-				if (onoff === 'TOGGLE') {
-					let current = chNum === 0 ? this.api.getChannel(1).txRfOutput : this.api.getChannel(chNum).txRfOutput
-					onoff = current === 'RF_MUTE' ? 'RF_ON' : 'RF_MUTE'
+				if (!isNaN(chNum)) {
+					setChannelRfOutput(this, chNum, options.onoff)
 				}
-				// In Axient Digital, slot 0 addresses all slots for the specified channel
-				this.sendCommand(`SET ${options.channel} SLOT_RF_OUTPUT 0 ${onoff}`)
 			},
 		}
 
@@ -158,10 +256,19 @@ export function updateActions() {
 			callback: async ({ options }) => {
 				let slot = options.slot.split(':')
 				let onoff = options.onoff
+				let chNum = parseInt(slot[0])
+				let slotNum = parseInt(slot[1])
+				if (slotNum === 0) {
+					// all slots of a channel, or of all channels
+					setChannelRfOutput(this, chNum, onoff)
+					return
+				}
 				if (onoff === 'TOGGLE') {
-					let chNum = parseInt(slot[0])
-					let slotNum = parseInt(slot[1])
-					let current = this.api.getSlot(chNum === 0 ? 1 : chNum, slotNum === 0 ? 1 : slotNum).txRfOutput
+					let current = this.api.getSlot(chNum, slotNum).txRfOutput
+					if (current !== 'RF_ON' && current !== 'RF_MUTE') {
+						this.log('warn', `RF toggle ignored: the RF output of slot ${options.slot} is not known`)
+						return
+					}
 					onoff = current === 'RF_MUTE' ? 'RF_ON' : 'RF_MUTE'
 				}
 				this.sendCommand(`SET ${slot[0]} SLOT_RF_OUTPUT ${slot[1]} ${onoff}`)
@@ -182,13 +289,10 @@ export function updateActions() {
 			options: [this.SLOTS_FIELD, Fields.SlotOffsetSet],
 			callback: async (event, context) => {
 				const options = event.options
-				let offset = await this.parseActionOption(event, 'offset', context)
-				if (offset !== null && offset !== undefined && offset !== '') {
+				let offset = await this.parseActionOption(event, 'offset', context, Regex.SlotOffsetSet)
+				if (offset !== null) {
 					let slot = options.slot.split(':')
-					let val = parseInt(offset) + 12
-					if (!isNaN(val) && val >= 0 && val <= 33) {
-						this.sendCommand(`SET ${slot[0]} SLOT_OFFSET ${slot[1]} ${val}`)
-					}
+					this.sendCommand(`SET ${slot[0]} SLOT_OFFSET ${slot[1]} ${offset + 12}`)
 				}
 			},
 		}
@@ -198,8 +302,8 @@ export function updateActions() {
 			options: [this.SLOTS_FIELD, Fields.SlotOffsetInc],
 			callback: async (event, context) => {
 				const options = event.options
-				let inc = await this.parseActionOption(event, 'offset', context)
-				if (inc) {
+				let inc = await this.parseActionOption(event, 'offset', context, Regex.SlotOffsetIncrement)
+				if (inc !== null) {
 					let slot = options.slot.split(':')
 					this.sendCommand(`SET ${slot[0]} SLOT_OFFSET ${slot[1]} INC ${inc}`)
 				}
@@ -211,8 +315,8 @@ export function updateActions() {
 			options: [this.SLOTS_FIELD, Fields.SlotOffsetInc],
 			callback: async (event, context) => {
 				const options = event.options
-				let dec = await this.parseActionOption(event, 'offset', context)
-				if (dec) {
+				let dec = await this.parseActionOption(event, 'offset', context, Regex.SlotOffsetIncrement)
+				if (dec !== null) {
 					let slot = options.slot.split(':')
 					this.sendCommand(`SET ${slot[0]} SLOT_OFFSET ${slot[1]} DEC ${dec}`)
 				}
@@ -253,52 +357,16 @@ export function updateActions() {
 			callback: async (event, context) => {
 				const options = event.options
 				let slot = options.slot.split(':')
-				let name = await this.parseActionOption(event, 'name', context, Regex.Name)
+				let name = await this.parseActionOption(event, 'name', context, Regex.ShortName)
 				if (name) {
 					this.sendCommand(`SET ${slot[0]} SLOT_TX_DEVICE_ID ${slot[1]} {${name}}`)
 				}
 			},
 		}
 
-		actions['slot_phantom_power'] = {
-			name: 'Set slot transmitter Phantom Power (ADX3)',
-			options: [this.SLOTS_FIELD, Fields.TxPhantomPower],
-			callback: async ({ options }) => {
-				let slot = options.slot.split(':')
-				this.sendCommand(`SET ${slot[0]} SLOT_PHANTOM_POWER ${slot[1]} ${options.value}`)
-			},
-		}
-
-		actions['slot_high_pass_filter'] = {
-			name: 'Set slot transmitter High Pass Filter (ADX3)',
-			options: [this.SLOTS_FIELD, Fields.TxHighPassFilter],
-			callback: async ({ options }) => {
-				let slot = options.slot.split(':')
-				this.sendCommand(`SET ${slot[0]} SLOT_HIGH_PASS_FILTER ${slot[1]} ${options.value}`)
-			},
-		}
-
-		if (this.model.id == 'anx4') {
-			actions['set_antenna_configuration'] = {
-				name: 'Set antenna configuration',
-				options: [this.CHANNELS_FIELD, Fields.AntennaConfiguration],
-				callback: async ({ options }) => {
-					this.sendCommand(`SET ${options.channel} ANTENNA_CONFIGURATION ${options.value}`)
-				},
-			}
-		}
-
-		actions['set_transmission_mode'] = {
-			name: 'Set transmission mode (Standard / High Density)',
-			options: [Fields.TransmissionMode],
-			callback: async ({ options }) => {
-				let mode = options.mode
-				if (mode === 'TOGGLE') {
-					mode = this.api.getReceiver().highDensity === 'ON' ? 'STANDARD' : 'HIGH_DENSITY'
-				}
-				this.sendCommand(`SET TRANSMISSION_MODE ${mode}`)
-			},
-		}
+		// TRANSMISSION_MODE, ANTENNA_CONFIGURATION, SLOT_PHANTOM_POWER and SLOT_HIGH_PASS_FILTER are
+		// discovery (GET) only in the AD4 and ANX4 command string manuals, so there are no actions
+		// for them. They are still tracked and available as variables and feedbacks.
 	}
 
 	if (this.model.family == 'ulx') {

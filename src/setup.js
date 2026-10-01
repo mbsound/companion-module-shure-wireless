@@ -60,11 +60,6 @@ export const Choices = {
 		{ id: 'OFF', label: 'High Density Off' },
 		{ id: 'TOGGLE', label: 'Toggle High Density' },
 	],
-	TransmissionMode: [
-		{ id: 'STANDARD', label: 'Standard Mode' },
-		{ id: 'HIGH_DENSITY', label: 'High Density Mode' },
-		{ id: 'TOGGLE', label: 'Toggle Mode' },
-	],
 	AudioSumming: [
 		{ id: 'OFF', label: 'Off' },
 		{ id: '1+2', label: '1+2' },
@@ -163,8 +158,16 @@ export const Choices = {
 
 export const Regex = {
 	Frequency: '/^\\d{3,4}\\.\\d{3}$/',
-	Name: '/^.{1,31}$/',
+	// { } delimit strings and < > delimit commands on the wire, so they can not be part of a name
+	Name: '/^[^{}<>]{1,31}$/',
+	// channel names (AD, ANX4) and transmitter device IDs can only be SET to 8 characters
+	ShortName: '/^[^{}<>]{1,8}$/',
 	GroupChan: '/^([0-9]{1,2}|--),([0-9]{1,2}|--)$/',
+	GroupChanPart: '/^([0-9]{1,3}|--)$/',
+	GainSet: { range: { min: -18, max: 42 } },
+	GainIncrement: { range: { min: 1, max: 60 } },
+	SlotOffsetSet: { range: { min: -12, max: 21 } },
+	SlotOffsetIncrement: { range: { min: 1, max: 33 } },
 	PsmGainSet: { range: { min: -67, max: 0 } },
 	PsmGainIncrement: { range: { min: 1, max: 67 } },
 }
@@ -221,7 +224,7 @@ export const Fields = {
 	},
 	Name: {
 		type: 'textinput',
-		label: 'Name (up to 31 chars for AD/SLX, 8 for ULX/QLX)',
+		label: 'Name (up to 8 chars for AD/ANX4/ULX/QLX, 31 for SLX)',
 		id: 'name',
 		default: '',
 		useVariables: true,
@@ -275,13 +278,6 @@ export const Fields = {
 		id: 'mode',
 		default: 'ON',
 		choices: Choices.HighDensity,
-	},
-	TransmissionMode: {
-		type: 'dropdown',
-		label: 'Transmission Mode',
-		id: 'mode',
-		default: 'HIGH_DENSITY',
-		choices: Choices.TransmissionMode,
 	},
 	AudioSumming: {
 		type: 'dropdown',

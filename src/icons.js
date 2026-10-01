@@ -18,6 +18,7 @@ export default class Icons {
 		this.instance = instance
 
 		this.savedIcons = {}
+		this.savedIconCount = 0
 
 		this.AD_ANT = {
 			BB: Buffer.from(
@@ -571,6 +572,25 @@ export default class Icons {
 	}
 
 	/**
+	 * Keep a rendered icon for reuse. Every combination of meter states is its own
+	 * ~28 kB image, so the cache is emptied when it gets large instead of growing forever.
+	 *
+	 * @param {String} id - the state the icon was rendered for
+	 * @param {String} icon - base64 encoded image
+	 * @access protected
+	 * @since 2.3.2
+	 */
+	saveIcon(id, icon) {
+		if (this.savedIconCount >= 1000) {
+			this.savedIcons = {}
+			this.savedIconCount = 0
+		}
+
+		this.savedIcons[id] = icon
+		this.savedIconCount++
+	}
+
+	/**
 	 * Returns the desired channel state object.
 	 *
 	 * @param {Object} img - the image object to draw on
@@ -662,7 +682,7 @@ export default class Icons {
 				}
 
 				out = img.toBase64()
-				this.savedIcons[id] = out
+				this.saveIcon(id, out)
 			} else {
 				out = this.savedIcons[id]
 			}
@@ -718,7 +738,7 @@ export default class Icons {
 				}
 
 				out = img.toBase64()
-				this.savedIcons[id] = out
+				this.saveIcon(id, out)
 			} else {
 				out = this.savedIcons[id]
 			}
@@ -783,7 +803,7 @@ export default class Icons {
 				}
 
 				out = img.toBase64()
-				this.savedIcons[id] = out
+				this.saveIcon(id, out)
 			} else {
 				out = this.savedIcons[id]
 			}
