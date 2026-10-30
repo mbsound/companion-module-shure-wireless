@@ -32,7 +32,8 @@ export function fakeInstance(modelId) {
 		checkFeedbacks(...ids) {
 			this.feedbackChecks.push(...ids)
 		},
-		refreshChoices() {},
+		scheduleDefinitionsUpdate() {},
+		querySupplemental() {},
 	}
 	instance.api = new WirelessApi(instance)
 	return instance

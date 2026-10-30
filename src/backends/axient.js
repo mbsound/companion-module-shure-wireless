@@ -678,6 +678,20 @@ export class AxientBackend {
 	}
 
 	/**
+	 * A command-strings line as the actions build it (`SET 1 SLOT_RF_OUTPUT 3 RF_MUTE`), sent on the
+	 * control port. Only SETs go out this way; reads are the backend's own.
+	 */
+	sendLine(cmd) {
+		const m = /^SET\s+(?:(\d{1,2})\s+)?([A-Z0-9_]+)(?:\s+(.*))?$/.exec(String(cmd).trim())
+		if (!m) {
+			this.log('warn', `not sent (not a SET): ${cmd}`)
+			return Promise.resolve()
+		}
+		const [, channel, prop, rest] = m
+		return this.command(channel === undefined ? null : Number(channel), prop, rest === undefined ? [] : [rest])
+	}
+
+	/**
 	 * A documented control-port SET, for what the ACN driver does not cover (ShowLink slots, group
 	 * and channel). `channel` 0 sends it to every channel in turn.
 	 */

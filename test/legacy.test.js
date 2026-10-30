@@ -110,3 +110,14 @@ test('a silent link is dropped and reopened by the watchdog', async (t) => {
 	await until(() => unit.connections >= 2, 3000, 'watchdog reconnect')
 	assert.ok(inst.logs.some((l) => /No data from the unit/.test(l)))
 })
+
+test('an unparseable frame or a REP ERR does not take the connection down', async (t) => {
+	const unit = await fakeUnit(t)
+	const { inst, backend } = legacyOn(t, unit, 'ulxd4')
+	await until(() => unit.connections === 1 && unit.sockets.size === 1, 3000, 'connect')
+	const [socket] = unit.sockets
+	socket.write('< REP >< SAMPLE x >< REP ERR >< garbage >< REP 1 CHAN_NAME {Vox} >')
+	await until(() => inst.variables.ch_1_name === 'Vox', 2000, 'frame after the bad ones')
+	assert.equal(unit.connections, 1)
+	assert.ok(backend.socket?.isConnected)
+})

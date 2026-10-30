@@ -454,14 +454,7 @@ export function updateFeedbacks() {
 			},
 			options: [this.CHANNELS_FIELD],
 			callback: ({ options }) => {
-				let ch = this.api.getChannel(parseInt(options.channel))
-				if (ch.txRfOutput == 'RF_MUTE') return true
-				for (let slot of ch.slots) {
-					if (slot && (slot.status == 'LINKED.ACTIVE' || slot.status == 'STANDARD') && slot.txRfOutput == 'RF_MUTE') {
-						return true
-					}
-				}
-				return false
+				return this.api.getChannel(parseInt(options.channel)).txRfOutput == 'RF_MUTE'
 			},
 		}
 

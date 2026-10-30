@@ -60,16 +60,17 @@ test('AD4Q keeps the action IDs existing buttons use; transmission mode is no lo
 		'slot_input_pad',
 		'slot_polarity',
 		'slot_tx_device_id',
-		'slot_phantom_power',
-		'slot_high_pass_filter',
 	]) {
 		assert.ok(ids.includes(id), `${id} is missing`)
 	}
-	assert.ok(!ids.includes('set_transmission_mode'))
+	// GET only in the AD4 and ANX4 manuals, or a restart of the receiver: not offered as actions
+	for (const id of ['set_transmission_mode', 'slot_phantom_power', 'slot_high_pass_filter']) {
+		assert.ok(!ids.includes(id), `${id} should not be offered`)
+	}
 	assert.ok(Object.keys(definitionsFor('anx4').actions).includes('set_antenna_configuration'))
 })
 
-test('AD actions go to the backend, not to a command-strings socket', async () => {
+test('AD actions use ACN where it covers them, and the backend control port otherwise', async () => {
 	const inst = definitionsFor('ad4q')
 	const calls = []
 	inst.isAxient = true
@@ -85,12 +86,12 @@ test('AD actions go to the backend, not to a command-strings socket', async () =
 	)
 	inst.parseActionOption = async (event, option) => String(event.options[option])
 	const run = (id, options) => inst.actions[id].callback({ options, controlId: 'c', actionId: id }, {})
-	await run('channel_setaudiogain', { channel: '2', gain: '50' })
+	await run('channel_setaudiogain', { channel: '2', gain: '12' })
 	await run('channel_mute', { channel: '1', choice: 'TOGGLE' })
 	await run('slot_rf_output', { slot: '1:3', onoff: 'RF_MUTE' })
 	assert.deepEqual(calls, [
-		['setGain', '2', 42],
+		['setGain', '2', '12'],
 		['setMute', '1', 'TOGGLE'],
-		['command', '1', 'SLOT_RF_OUTPUT', ['3', 'RF_MUTE']],
+		['sendCommand', 'SET 1 SLOT_RF_OUTPUT 3 RF_MUTE'],
 	])
 })

@@ -11,6 +11,8 @@ const HEARTBEAT_MS = 30_000
 /** No data at all for this long (two missed heartbeats and change) means the link is dead. */
 const SILENCE_MS = 75_000
 const CLOSE_DEADLINE_MS = 1500
+/** More than this much without a closing `>` is not a command-strings stream. */
+const RECEIVE_BUFFER_LIMIT = 65536
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -34,7 +36,9 @@ export class LegacyBackend {
 		this.socket = null
 		this.buffer = ''
 		this.queue = []
+		this.pollQueue = []
 		this.pumping = false
+		this.loggedParseErrors = new Set()
 		this.lastDataAt = 0
 		this.heartbeat = null
 		this.closed = false
@@ -61,7 +65,8 @@ export class LegacyBackend {
 			this.ctx.log('debug', 'Connected')
 			this.lastDataAt = Date.now()
 			this.queue = []
-			for (const cmd of this.#initialCommands()) this.send(cmd)
+			this.pollQueue = []
+			for (const cmd of this.#initialCommands()) this.send(cmd, { poll: true })
 			this.#startHeartbeat()
 		})
 		socket.on('end', () => this.#stopHeartbeat())
@@ -82,8 +87,10 @@ export class LegacyBackend {
 				}
 				const frame = this.buffer.slice(start + 1, end).trim()
 				this.buffer = this.buffer.slice(end + 1)
-				this.processShureCommand(frame)
+				this.#processFrame(frame)
 			}
+			// not a command-strings stream
+			if (this.buffer.length > RECEIVE_BUFFER_LIMIT) this.buffer = ''
 		})
 	}
 
@@ -131,7 +138,7 @@ export class LegacyBackend {
 
 	#meterRate(config = this.ctx.config) {
 		if (config.meteringOn !== true) return 0
-		return clamp(Number(config.meteringInterval) || 1000, 100, 65_535)
+		return clamp(parseInt(config.meteringInterval) || 5000, 100, 99_999)
 	}
 
 	#meterCommands(rate) {
@@ -145,17 +152,20 @@ export class LegacyBackend {
 		const before = this.#meterRate()
 		this.ctx.config = { ...this.ctx.config, meteringOn: config.meteringOn, meteringInterval: config.meteringInterval }
 		const after = this.#meterRate()
-		if (before !== after) for (const cmd of this.#meterCommands(after)) this.send(cmd)
+		if (before !== after) for (const cmd of this.#meterCommands(after)) this.send(cmd, { poll: true })
 	}
 
-	/** Queue a command (without its brackets) to go out paced. */
-	send(cmd) {
+	/**
+	 * Queue a command (without its brackets) to go out paced. Commands from actions go ahead of
+	 * background queries (`poll`), so a button press is not stuck behind a connect's reads.
+	 */
+	send(cmd, { poll = false } = {}) {
 		if (cmd === undefined) return
 		if (!this.socket?.isConnected) {
 			this.ctx.log('debug', 'Socket not connected')
 			return
 		}
-		this.queue.push(`< ${cmd} >`)
+		;(poll ? this.pollQueue : this.queue).push(`< ${cmd} >`)
 		void this.#pump()
 	}
 
@@ -163,14 +173,26 @@ export class LegacyBackend {
 		if (this.pumping) return
 		this.pumping = true
 		try {
-			while (this.queue.length && this.socket?.isConnected && !this.closed) {
-				await this.socket.send(this.queue.shift())
+			while ((this.queue.length || this.pollQueue.length) && this.socket?.isConnected && !this.closed) {
+				const msg = this.queue.length ? this.queue.shift() : this.pollQueue.shift()
+				// a failed write must not become an unhandled rejection, which would end the module
+				await this.socket.send(msg).catch((err) => this.ctx.log('debug', `Send failed: ${err.message}`))
 				await delay(this.timings.sendGapMs)
 			}
-		} catch (err) {
-			this.ctx.log('debug', `send failed: ${err.message}`)
 		} finally {
 			this.pumping = false
+		}
+	}
+
+	/** A frame this module cannot parse must never take the connection down. */
+	#processFrame(frame) {
+		try {
+			this.processShureCommand(frame)
+		} catch (err) {
+			if (!this.loggedParseErrors.has(err.message) && this.loggedParseErrors.size < 50) {
+				this.loggedParseErrors.add(err.message)
+				this.ctx.log('warn', `Unable to parse "${frame} >": ${err.message}`)
+			}
 		}
 	}
 
@@ -183,7 +205,7 @@ export class LegacyBackend {
 				this.#reconnect()
 				return
 			}
-			this.send('GET 1 METER_RATE')
+			this.send('GET 1 METER_RATE', { poll: true })
 		}, this.timings.heartbeatMs)
 		this.heartbeat.unref?.()
 	}
@@ -196,6 +218,7 @@ export class LegacyBackend {
 	#reconnect() {
 		this.#stopHeartbeat()
 		this.queue = []
+		this.pollQueue = []
 		this.socket?.destroy()
 		this.socket = null
 		this.#open()
@@ -207,6 +230,7 @@ export class LegacyBackend {
 		const socket = this.socket
 		this.socket = null
 		this.queue = []
+		this.pollQueue = []
 		if (socket?.isConnected) {
 			// the unit keeps streaming SAMPLE lines until metering is turned off
 			const off = (async () => {
@@ -229,11 +253,14 @@ export class LegacyBackend {
 		if (typeof command !== 'string' || command.length === 0) return
 		const commandArr = command.split(' ')
 		const commandType = commandArr.shift()
+		if (commandArr.length == 0) return
 		const commandNum = parseInt(commandArr[0])
 		const joinData = (from) => commandArr.slice(from).join(' ').trim()
 
 		if (commandType == 'REP' || commandType == 'REPORT') {
-			if (isNaN(commandNum)) {
+			if (commandArr[0] == 'ERR') {
+				this.ctx.log('debug', 'Receiver rejected a command (REP ERR)')
+			} else if (isNaN(commandNum)) {
 				this.api.updateReceiver(commandArr[0], joinData(1))
 			} else if (commandArr[1] && commandArr[1].startsWith('SLOT')) {
 				this.api.updateSlot(commandNum, parseInt(commandArr[2]), commandArr[1], joinData(3))
@@ -241,6 +268,7 @@ export class LegacyBackend {
 				this.api.updateChannel(commandNum, commandArr[1], joinData(2))
 			}
 		} else if (commandType == 'SAMPLE') {
+			if (isNaN(commandNum)) return
 			switch (this.#family) {
 				case 'ulx':
 				case 'qlx':

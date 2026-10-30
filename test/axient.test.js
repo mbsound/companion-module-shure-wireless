@@ -150,3 +150,18 @@ test('ANX4: SAMPLE lines for two-digit channels are decoded', async (t) => {
 	fake.commands.quality[12] = 4
 	await until(() => inst.variables.ch_12_signal_quality === 4, 3000, 'channel 12 quality')
 })
+
+test('AD4Q: command-strings actions (ShowLink slots, flash) go out on the control port as one SET', async (t) => {
+	const { inst, fake, backend, chunks } = await axientOnFake(t)
+	await until(() => lastStatus(inst) === 'ok', 6000, 'status ok')
+	await until(() => chunks.join('').includes('METER_RATE'), 15_000, 'first read done')
+	await backend.sendLine('SET FLASH ON')
+	assert.deepEqual(fake.commands.flashes, [null])
+	void backend.sendLine('SET 1 SLOT_RF_OUTPUT 0 RF_MUTE')
+	await until(() => chunks.some((c) => c.includes('< SET 1 SLOT_RF_OUTPUT 0 RF_MUTE >')), 2000, 'slot SET sent')
+	// reads are the backend's own: a GET handed in from outside is refused, not sent
+	const gets = fake.commands.gets.length
+	await backend.sendLine('GET 1 TX_MODEL')
+	assert.equal(fake.commands.gets.length, gets)
+	assert.ok(inst.logs.some((l) => /not sent \(not a SET\)/.test(l)))
+})

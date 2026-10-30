@@ -14,8 +14,8 @@ import { Choices, Models } from './setup.js'
 import { AxientBackend, stopSharedBrowser } from './backends/axient.js'
 import { LegacyBackend } from './backends/legacy.js'
 
-/** How long to wait for more channel names before rebuilding the action and feedback lists. */
-const CHOICES_DEBOUNCE_MS = 300
+/** Rebuild action/feedback definitions at most this often while names are streaming in. */
+const DEFINITIONS_DEBOUNCE = 250
 
 /**
  * Companion instance for Shure wireless receivers and transmitters.
@@ -36,7 +36,9 @@ class ShureWirelessInstance extends InstanceBase {
 		this.updateFeedbacks = updateFeedbacks.bind(this)
 		this.updateVariables = updateVariables.bind(this)
 		this.backend = null
-		this.choicesTimer = null
+		this.definitionsTimer = undefined
+		this.pendingVariables = {}
+		this.pendingFeedbacks = new Set()
 	}
 
 	get isAxient() {
@@ -52,10 +54,13 @@ class ShureWirelessInstance extends InstanceBase {
 		this.CHOICES_SLOTS = []
 		this.CHOICES_SLOTS_A = []
 
-		if (this.config.modelID === undefined || Models[this.config.modelID] === undefined) {
-			this.config.modelID = this.config.modelID ?? 'ulxd4'
+		if (Models[this.config.modelID] === undefined) {
+			if (this.config.modelID !== undefined) {
+				this.log('warn', `Shure Model: ${this.config.modelID} NOT FOUND, using ULXD4`)
+			}
+			this.config.modelID = 'ulxd4'
 		}
-		this.model = { ...(Models[this.config.modelID] ?? Models.ulxd4) }
+		this.model = { ...Models[this.config.modelID] }
 
 		if (this.config.variableFormat === undefined) {
 			this.config.variableFormat = 'units'
@@ -92,7 +97,7 @@ class ShureWirelessInstance extends InstanceBase {
 		if (Models[this.config.modelID] !== undefined) {
 			this.model = { ...Models[this.config.modelID] }
 		} else {
-			this.log('debug', `Shure Model: ${this.config.modelID} NOT FOUND`)
+			this.log('warn', `Shure Model: ${this.config.modelID} NOT FOUND`)
 		}
 
 		if (reconnect) {
@@ -112,7 +117,9 @@ class ShureWirelessInstance extends InstanceBase {
 	}
 
 	async destroy() {
-		clearTimeout(this.choicesTimer)
+		this.destroyed = true
+		clearTimeout(this.definitionsTimer)
+		this.definitionsTimer = undefined
 		await this.#stopBackend()
 		stopSharedBrowser()
 		this.log('debug', `destroy ${this.id}`)
@@ -162,33 +169,93 @@ class ShureWirelessInstance extends InstanceBase {
 		if (this.model.channels === n) return
 		this.model.channels = n
 		this.updateVariables()
-		this.refreshChoices()
-	}
-
-	/** Rebuild the action and feedback lists (channel names in the choices), coalescing bursts. */
-	refreshChoices() {
-		clearTimeout(this.choicesTimer)
-		this.choicesTimer = setTimeout(() => {
-			this.updateActions()
-			this.updateFeedbacks()
-		}, CHOICES_DEBOUNCE_MS)
-	}
-
-	/** Send a command-strings command (without brackets) on the models that use only those. */
-	sendCommand(cmd) {
-		if (this.backend instanceof LegacyBackend) this.backend.send(cmd)
-		else this.log('debug', `not sent (no command-strings backend): ${cmd}`)
+		this.scheduleDefinitionsUpdate()
 	}
 
 	/**
+	 * Rebuild the action and feedback definitions (their dropdowns show channel names and
+	 * transmitter IDs), coalescing bursts of name reports.
+	 */
+	scheduleDefinitionsUpdate() {
+		if (this.definitionsTimer !== undefined) return
+		this.definitionsTimer = setTimeout(() => {
+			this.definitionsTimer = undefined
+			this.updateActions()
+			this.updateFeedbacks()
+		}, DEFINITIONS_DEBOUNCE)
+	}
+
+	/**
+	 * The state store asks for the channel and slot queries that follow an ANX4's mode and
+	 * channel reports. On AD4D/AD4Q/ANX4 the Axient backend's own read covers them (and a mode
+	 * change restarts the unit, which is read again in full), and no other model sends them.
+	 */
+	querySupplemental() {}
+
+	/**
+	 * Collects variable changes and sends them to Companion once per event loop turn,
+	 * instead of one message per property reported by the receiver.
+	 */
+	setVariableValues(values) {
+		Object.assign(this.pendingVariables, values)
+		this.scheduleFlush()
+	}
+
+	/** Collects feedback checks, so each type is evaluated once per event loop turn. */
+	checkFeedbacks(...feedbackTypes) {
+		if (feedbackTypes.length == 0) {
+			super.checkFeedbacks()
+			return
+		}
+		for (let type of feedbackTypes) this.pendingFeedbacks.add(type)
+		this.scheduleFlush()
+	}
+
+	scheduleFlush() {
+		if (this.flushScheduled !== true) {
+			this.flushScheduled = true
+			setImmediate(() => this.flush())
+		}
+	}
+
+	flush() {
+		this.flushScheduled = false
+		if (this.destroyed === true) return
+		let variables = this.pendingVariables
+		this.pendingVariables = {}
+		if (Object.keys(variables).length > 0) super.setVariableValues(variables)
+		if (this.pendingFeedbacks.size > 0) {
+			let feedbacks = [...this.pendingFeedbacks]
+			this.pendingFeedbacks.clear()
+			super.checkFeedbacks(...feedbacks)
+		}
+	}
+
+	/**
+	 * Send a command-strings command (without brackets). On AD4D/AD4Q/ANX4 it goes out on the
+	 * Axient backend's control port, one request at a time; the settings ACN covers do not
+	 * come through here.
+	 */
+	sendCommand(cmd) {
+		if (cmd === undefined) return
+		if (this.backend instanceof LegacyBackend) this.backend.send(cmd)
+		else if (this.backend instanceof AxientBackend) this.backend.sendLine(cmd)
+		else this.log('debug', `not sent (not connected): ${cmd}`)
+	}
+
+	/**
+	 *
 	 * @param {object} event - action event
 	 * @param {string} option - which event option to parse
-	 * @param {object} context - contains variable parser function
+	 * @param {object} context 	- contains variable parser function
 	 * @param {object} [validate] - optional regexp or range to compare against result
 	 * @returns result of parsing variables in event.options[option] or null if regex or range fails
+	 * @access private
+	 * @since 2.1.0
 	 */
 	async parseActionOption(event, option, context, validate) {
-		let value = String(await context.parseVariablesInString(event.options[option])).trim()
+		// options can hold a number (untouched numeric default) or be missing entirely
+		let value = String(await context.parseVariablesInString(String(event.options[option] ?? ''))).trim()
 		let err = null
 
 		let regex = null
@@ -212,16 +279,21 @@ class ShureWirelessInstance extends InstanceBase {
 		}
 
 		if (regex && !regex.test(value)) {
-			err = [event.controlId, event.actionId, option].join(' → ')
+			err = 'Invalid value'
 		} else if (range) {
-			value = parseInt(value)
-			if (isNaN(value) || value < range.min || value > range.max) {
-				err = [event.controlId, event.actionId, option, 'Out of range'].join(' → ')
+			if (!/^[+-]?\d+$/.test(value)) {
+				err = 'Not a number'
+			} else {
+				value = parseInt(value)
+				if (value < range.min || value > range.max) {
+					err = 'Out of range'
+				}
 			}
 		}
+
 		if (err) {
-			this.log('warn', `Invalid action option: ${err}`)
-			value = null
+			this.log('warn', `${[event.controlId, event.actionId, option].join(' → ')}: ${err} ("${value}"), nothing sent`)
+			return null
 		}
 
 		return value
@@ -277,7 +349,7 @@ class ShureWirelessInstance extends InstanceBase {
 				tooltip: 'How often meter values are updated, 100 ms or slower. Faster rates load Companion and the receiver.',
 				width: 4,
 				min: 100,
-				max: 65535,
+				max: 99999,
 				default: 5000,
 				required: true,
 			},
