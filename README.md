@@ -19,6 +19,36 @@ This module provides two-way control, real-time status monitoring, dynamic varia
 
 ---
 
+## How AD4D, AD4Q and ANX4 Are Controlled (3.0)
+
+From version 3.0, Axient Digital receivers (AD4D, AD4Q) and the ANX4 run on the driver from
+[soundbase-plugin-shure-axient-digital](https://github.com/mbsound/soundbase-plugin-shure-axient-digital), which has
+been tested on real AD4Q, AD4D and ANX4 units. It is vendored unchanged under `src/driver/` apart
+from three marked additions listed in [`src/driver/VENDORED.md`](src/driver/VENDORED.md).
+
+- **ACN session (UDP).** Settings and meters use ACN, the protocol Wireless Workbench uses: names,
+  gain, mute, frequency, frequency diversity, encryption, transmission mode, band, the ANX4's
+  licensed channel count and per-channel antenna pair. Every change is read back from the unit, so
+  what Companion shows is what the receiver holds. Reads are batched and paced; the receiver pushes
+  changes made on its panel or in Workbench as they happen.
+- **Command strings (TCP 2202).** The transmitter (model, name, battery, power, mute mode, talk
+  switch, locks), ShowLink slots, the status flags (interference, unregistered transmitter,
+  encryption mismatch) and the quality/LED meter line come from the documented port. One request is
+  in flight at a time, each waiting for its reply, and metering is switched back off when the
+  connection closes. If the port is unavailable (some ANX4 firmware has no command strings), the
+  connection still works and its status says which details are missing.
+
+**Network requirements.** Companion must be on the same network segment as the receiver: the
+receiver is found by SLP discovery (UDP 8427, unicast to the configured IP plus multicast), and the
+session uses UDP (port 57383 by default). Its component ID is remembered after the first connection.
+
+**Read-only by design.** Settings that restart the receiver or unpair transmitters (High Density /
+transmission mode, band, encryption, Quadversity) are shown as variables and feedbacks but cannot be
+changed from Companion. The `set_transmission_mode` action that earlier versions offered for AD
+models has been removed for that reason; buttons using it need to be reassigned.
+
+---
+
 ## Additions Over the Standard Bundled Module
 
 This version includes major feature additions and improvements that are not present in the standard bundled Companion module:
@@ -84,8 +114,8 @@ Full integration for Shure's next-generation **ANX4 Multi-Channel Receiver**:
 
 - **Massive Channel Scaling**: Supports up to **16 channels** in Axient Digital transmission mode and up to **24 channels** in ULX-D transmission mode, with 8 ShowLink transmitter slots per Axient Digital channel (up to 128 total ShowLink slots tracked).
 - **Dynamic Channel Licensing & Availability**: Automatic polling and live variables for `number_channels_licensed` (0–24) and `available_channels` (reporting active, non-eclipsed channels when FD-C or Quadversity is in use).
-- **Multi-Standard Transmission Modes**: Live discovery and variables for `transmission_mode` (`AD_STANDARD`, `AD_HIGH_DENSITY`, `ULXD_STANDARD`, `ULXD_HIGH_DENSITY`).
-- **Antenna Configuration**: Per-channel selection and feedback for antenna distribution (`AUTOMATIC`, `AB`, `CD`, `QUADVERSITY`).
+- **Multi-Standard Transmission Modes**: Live discovery and variables for `transmission_mode` (`AD_STANDARD`, `AD_HIGH_DENSITY`, `ULXD_STANDARD`, `ULXD_HIGH_DENSITY`). Read-only: changing it restarts the receiver.
+- **Antenna Configuration**: Per-channel antenna pair (`AB` or `CD`), set over ACN and read back. `AUTOMATIC` and `QUADVERSITY` are reported and available as feedbacks, but the receiver offers no network write for them.
 - **Plug-On Transmitter Controls (AD3 / ADX3)**:
   - **Phantom Power**: Remotely monitor and control transmitter phantom power (`Off`, `+12V`, `+48V`) via actions, feedbacks, variables, and button labels.
   - **High Pass Filter (HPF)**: Remotely monitor and control transmitter high-pass filter cutoffs (`Off`, `40 Hz`, `80 Hz`, `160 Hz`, `240 Hz`) via actions, feedbacks, variables, and button labels.
@@ -260,14 +290,14 @@ ANX4 expands the supported transmitter family to include the Shure **AD3** (stan
 ## Configuration Settings
 
 - **Target IP**: The IP address of the Shure receiver.
-- **Target Port**: Default is `2202`.
-- **Model Type**: Select your receiver model from the dropdown.
+- **Command Strings Port**: Default is `2202`. For AD4D/AD4Q/ANX4 this is the transmitter/ShowLink side; settings and meters use ACN (see above).
+- **Model Type**: Select your receiver model from the dropdown. For an ANX4 the channel count is read from its licence.
 - **Enable Metering**: Enables continuous background polling of audio and RF meters.
-- **Metering Interval**: Rate in milliseconds at which the receiver sends meter updates (default is 5000 ms; recommended 500–5000 ms).
+- **Metering Interval**: Rate in milliseconds at which meter values update (default 5000 ms; 100 ms minimum, the receivers' documented limit; recommended 500–5000 ms).
 - **Variable Format**: Choose between "Include Units" (e.g. `+3 dB`, `470.200 MHz`) or "Numeric Only" (`3`, `470200`).
 
 ---
 
 ## License
 
-MIT License. See [LICENSE](file:///Users/mattbell/Documents/Shure%20Companion%20Module/LICENSE) for details.
+MIT License. See [LICENSE](LICENSE) for details. The vendored driver in `src/driver/` is MIT-licensed from [soundbase-plugin-shure-axient-digital](https://github.com/mbsound/soundbase-plugin-shure-axient-digital).

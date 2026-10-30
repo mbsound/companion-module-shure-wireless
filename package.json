@@ -1,10 +1,10 @@
 {
 	"name": "shure-wireless",
-	"version": "2.3.1-experimental.1",
+	"version": "3.0.0-experimental.1",
 	"main": "src/index.js",
 	"type": "module",
 	"scripts": {
-		"test": "echo \"Error: no test specified\" && exit 1",
+		"test": "node --test --test-concurrency=1 test/*.test.js",
 		"format": "prettier --write .",
 		"package": "companion-module-build --prerelease",
 		"package:dev": "companion-module-build --dev --prerelease"

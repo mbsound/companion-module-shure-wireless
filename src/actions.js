@@ -18,7 +18,8 @@ export function updateActions() {
 			const options = event.options
 			let name = await this.parseActionOption(event, 'name', context, Regex.Name)
 			if (name) {
-				this.sendCommand(`SET ${options.channel} CHAN_NAME {${name}}`)
+				if (this.isAxient) await this.backend?.setChannelName(options.channel, name)
+				else this.sendCommand(`SET ${options.channel} CHAN_NAME {${name}}`)
 			}
 		},
 	}
@@ -29,6 +30,10 @@ export function updateActions() {
 		callback: async (event, context) => {
 			let name = await this.parseActionOption(event, 'name', context, Regex.Name)
 			if (name) {
+				if (this.isAxient) {
+					await this.backend?.setDeviceName(name)
+					return
+				}
 				let cmd = this.model.family === 'psm' ? `SET DEVICE_NAME ${name}` : `SET DEVICE_ID {${name}}`
 				this.sendCommand(cmd)
 			}
@@ -43,6 +48,10 @@ export function updateActions() {
 			let group = await this.parseActionOption(event, 'group', context)
 			let channel = await this.parseActionOption(event, 'channel_num', context)
 			if (group && channel) {
+				if (this.isAxient) {
+					await this.backend?.command(options.channel, 'GROUP_CHANNEL', [`${group},${channel}`])
+					return
+				}
 				let cmd =
 					this.model.family === 'ulx' || this.model.family === 'qlx' || this.model.family === 'psm'
 						? 'GROUP_CHAN'
@@ -57,7 +66,8 @@ export function updateActions() {
 			name: 'Mute or unmute channel',
 			options: [this.CHANNELS_A_FIELD, Fields.Mute],
 			callback: async ({ options }) => {
-				this.sendCommand(`SET ${options.channel} AUDIO_MUTE ${options.choice}`)
+				if (this.isAxient) await this.backend?.setMute(options.channel, options.choice)
+				else this.sendCommand(`SET ${options.channel} AUDIO_MUTE ${options.choice}`)
 			},
 		}
 	}
@@ -69,9 +79,11 @@ export function updateActions() {
 			callback: async (event, context) => {
 				const options = event.options
 				let gainValue = await this.parseActionOption(event, 'gain', context, Regex.GainSet)
-				if (gainValue) {
-					gainValue = 18 + parseInt(gainValue)
-					this.sendCommand(`SET ${options.channel} AUDIO_GAIN ${gainValue}`)
+				if (gainValue !== null) {
+					// out of range is snapped to the receiver's -18..+42 dB, not refused
+					const db = Math.min(42, Math.max(-18, parseInt(gainValue)))
+					if (this.isAxient) await this.backend?.setGain(options.channel, db)
+					else this.sendCommand(`SET ${options.channel} AUDIO_GAIN ${18 + db}`)
 				}
 			},
 		}
@@ -82,8 +94,9 @@ export function updateActions() {
 			callback: async (event, context) => {
 				const options = event.options
 				let gainIncrement = await this.parseActionOption(event, 'gain', context, Regex.GainIncrement)
-				if (gainIncrement) {
-					this.sendCommand(`SET ${options.channel} AUDIO_GAIN INC ${gainIncrement}`)
+				if (gainIncrement !== null) {
+					if (this.isAxient) await this.backend?.stepGain(options.channel, gainIncrement)
+					else this.sendCommand(`SET ${options.channel} AUDIO_GAIN INC ${gainIncrement}`)
 				}
 			},
 		}
@@ -94,8 +107,9 @@ export function updateActions() {
 			callback: async (event, context) => {
 				const options = event.options
 				let gainIncrement = await this.parseActionOption(event, 'gain', context, Regex.GainIncrement)
-				if (gainIncrement) {
-					this.sendCommand(`SET ${options.channel} AUDIO_GAIN DEC ${gainIncrement}`)
+				if (gainIncrement !== null) {
+					if (this.isAxient) await this.backend?.stepGain(options.channel, -gainIncrement)
+					else this.sendCommand(`SET ${options.channel} AUDIO_GAIN DEC ${gainIncrement}`)
 				}
 			},
 		}
@@ -108,7 +122,8 @@ export function updateActions() {
 			const options = event.options
 			let freq = await this.parseActionOption(event, 'value', context, Regex.Frequency)
 			if (freq) {
-				this.sendCommand(`SET ${options.channel} FREQUENCY ${freq.replace('.', '')}`)
+				if (this.isAxient) await this.backend?.setFrequency(options.channel, Number(freq))
+				else this.sendCommand(`SET ${options.channel} FREQUENCY ${freq.replace('.', '')}`)
 			}
 		},
 	}
@@ -118,8 +133,9 @@ export function updateActions() {
 			name: 'Flash lights on receiver',
 			tooltip: 'It will automatically turn off after 30 seconds',
 			options: [],
-			callback: async ({ options }) => {
-				this.sendCommand(`SET FLASH ON`)
+			callback: async () => {
+				if (this.isAxient) await this.backend?.identify(null)
+				else this.sendCommand(`SET FLASH ON`)
 			},
 		}
 	}
@@ -130,7 +146,8 @@ export function updateActions() {
 			tooltip: 'It will automatically turn off after 60 seconds',
 			options: [this.CHANNELS_FIELD],
 			callback: async ({ options }) => {
-				this.sendCommand(`SET ${options.channel} FLASH ON`)
+				if (this.isAxient) await this.backend?.identify(options.channel)
+				else this.sendCommand(`SET ${options.channel} FLASH ON`)
 			},
 		}
 	}
@@ -148,7 +165,7 @@ export function updateActions() {
 					onoff = current === 'RF_MUTE' ? 'RF_ON' : 'RF_MUTE'
 				}
 				// In Axient Digital, slot 0 addresses all slots for the specified channel
-				this.sendCommand(`SET ${options.channel} SLOT_RF_OUTPUT 0 ${onoff}`)
+				await this.backend?.command(options.channel, 'SLOT_RF_OUTPUT', ['0', onoff])
 			},
 		}
 
@@ -164,7 +181,7 @@ export function updateActions() {
 					let current = this.api.getSlot(chNum === 0 ? 1 : chNum, slotNum === 0 ? 1 : slotNum).txRfOutput
 					onoff = current === 'RF_MUTE' ? 'RF_ON' : 'RF_MUTE'
 				}
-				this.sendCommand(`SET ${slot[0]} SLOT_RF_OUTPUT ${slot[1]} ${onoff}`)
+				await this.backend?.command(slot[0], 'SLOT_RF_OUTPUT', [slot[1], onoff])
 			},
 		}
 
@@ -173,7 +190,7 @@ export function updateActions() {
 			options: [this.SLOTS_A_FIELD, Fields.RfPower],
 			callback: async ({ options }) => {
 				let slot = options.slot.split(':')
-				this.sendCommand(`SET ${slot[0]} SLOT_RF_POWER_MODE ${slot[1]} ${options.power}`)
+				await this.backend?.command(slot[0], 'SLOT_RF_POWER_MODE', [slot[1], options.power])
 			},
 		}
 
@@ -187,7 +204,7 @@ export function updateActions() {
 					let slot = options.slot.split(':')
 					let val = parseInt(offset) + 12
 					if (!isNaN(val) && val >= 0 && val <= 33) {
-						this.sendCommand(`SET ${slot[0]} SLOT_OFFSET ${slot[1]} ${val}`)
+						await this.backend?.command(slot[0], 'SLOT_OFFSET', [slot[1], val])
 					}
 				}
 			},
@@ -201,7 +218,7 @@ export function updateActions() {
 				let inc = await this.parseActionOption(event, 'offset', context)
 				if (inc) {
 					let slot = options.slot.split(':')
-					this.sendCommand(`SET ${slot[0]} SLOT_OFFSET ${slot[1]} INC ${inc}`)
+					await this.backend?.command(slot[0], 'SLOT_OFFSET', [slot[1], 'INC', inc])
 				}
 			},
 		}
@@ -214,7 +231,7 @@ export function updateActions() {
 				let dec = await this.parseActionOption(event, 'offset', context)
 				if (dec) {
 					let slot = options.slot.split(':')
-					this.sendCommand(`SET ${slot[0]} SLOT_OFFSET ${slot[1]} DEC ${dec}`)
+					await this.backend?.command(slot[0], 'SLOT_OFFSET', [slot[1], 'DEC', dec])
 				}
 			},
 		}
@@ -229,7 +246,7 @@ export function updateActions() {
 					let current = this.api.getSlot(parseInt(slot[0]), parseInt(slot[1])).txInputPad
 					pad = current === 0 ? '12' : '0'
 				}
-				this.sendCommand(`SET ${slot[0]} SLOT_INPUT_PAD ${slot[1]} ${pad}`)
+				await this.backend?.command(slot[0], 'SLOT_INPUT_PAD', [slot[1], pad])
 			},
 		}
 
@@ -243,7 +260,7 @@ export function updateActions() {
 					let current = this.api.getSlot(parseInt(slot[0]), parseInt(slot[1])).txPolarity
 					pol = current === 'POSITIVE' ? 'NEGATIVE' : 'POSITIVE'
 				}
-				this.sendCommand(`SET ${slot[0]} SLOT_POLARITY ${slot[1]} ${pol}`)
+				await this.backend?.command(slot[0], 'SLOT_POLARITY', [slot[1], pol])
 			},
 		}
 
@@ -255,7 +272,7 @@ export function updateActions() {
 				let slot = options.slot.split(':')
 				let name = await this.parseActionOption(event, 'name', context, Regex.Name)
 				if (name) {
-					this.sendCommand(`SET ${slot[0]} SLOT_TX_DEVICE_ID ${slot[1]} {${name}}`)
+					await this.backend?.command(slot[0], 'SLOT_TX_DEVICE_ID', [slot[1], `{${name}}`])
 				}
 			},
 		}
@@ -265,7 +282,7 @@ export function updateActions() {
 			options: [this.SLOTS_FIELD, Fields.TxPhantomPower],
 			callback: async ({ options }) => {
 				let slot = options.slot.split(':')
-				this.sendCommand(`SET ${slot[0]} SLOT_PHANTOM_POWER ${slot[1]} ${options.value}`)
+				await this.backend?.command(slot[0], 'SLOT_PHANTOM_POWER', [slot[1], options.value])
 			},
 		}
 
@@ -274,30 +291,19 @@ export function updateActions() {
 			options: [this.SLOTS_FIELD, Fields.TxHighPassFilter],
 			callback: async ({ options }) => {
 				let slot = options.slot.split(':')
-				this.sendCommand(`SET ${slot[0]} SLOT_HIGH_PASS_FILTER ${slot[1]} ${options.value}`)
+				await this.backend?.command(slot[0], 'SLOT_HIGH_PASS_FILTER', [slot[1], options.value])
 			},
 		}
 
 		if (this.model.id == 'anx4') {
 			actions['set_antenna_configuration'] = {
 				name: 'Set antenna configuration',
-				options: [this.CHANNELS_FIELD, Fields.AntennaConfiguration],
+				description: 'The antenna pair a channel listens on. Automatic and Quadversity cannot be set over the network.',
+				options: [this.CHANNELS_A_FIELD, Fields.AntennaPair],
 				callback: async ({ options }) => {
-					this.sendCommand(`SET ${options.channel} ANTENNA_CONFIGURATION ${options.value}`)
+					await this.backend?.setAntenna(options.channel, options.value)
 				},
 			}
-		}
-
-		actions['set_transmission_mode'] = {
-			name: 'Set transmission mode (Standard / High Density)',
-			options: [Fields.TransmissionMode],
-			callback: async ({ options }) => {
-				let mode = options.mode
-				if (mode === 'TOGGLE') {
-					mode = this.api.getReceiver().highDensity === 'ON' ? 'STANDARD' : 'HIGH_DENSITY'
-				}
-				this.sendCommand(`SET TRANSMISSION_MODE ${mode}`)
-			},
 		}
 	}
 

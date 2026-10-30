@@ -319,41 +319,48 @@ export default class WirelessApi {
 	 *
 	 * @param {number} id - the channel id
 	 * @param {String} data - the sample data
+	 * @param {Object} [options]
+	 * @param {boolean} [options.acnLevels] - RF A/B and RMS audio levels come from the ACN session
+	 *   (`applyAcnMeters`), so the sample's coarser copies of them are not published
 	 * @access public
 	 * @since 1.0.0
 	 */
-	parseADSample(id, data) {
+	parseADSample(id, data, { acnLevels = false } = {}) {
 		let channel = this.getChannel(id)
 		let prefix = 'ch_' + id + '_'
 		let sample = data.split(' ')
+		const units = this.instance.config.variableFormat == 'units'
 
 		channel.signalQuality = parseInt(sample[3])
 		channel.audioLED = parseInt(sample[4])
 		channel.audioLevelPeak = parseInt(sample[5]) - 120
-		channel.audioLevel = parseInt(sample[6]) - 120
 
-		this.instance.setVariableValues({
+		const levels = {
 			[`${prefix}signal_quality`]: channel.signalQuality,
-			[`${prefix}audio_level`]: channel.audioLevel + (this.instance.config.variableFormat == 'units' ? ' dBFS' : ''),
-			[`${prefix}audio_level_peak`]:
-				channel.audioLevelPeak + (this.instance.config.variableFormat == 'units' ? ' dBFS' : ''),
-		})
+			[`${prefix}audio_level_peak`]: channel.audioLevelPeak + (units ? ' dBFS' : ''),
+		}
+		if (!acnLevels) {
+			channel.audioLevel = parseInt(sample[6]) - 120
+			levels[`${prefix}audio_level`] = channel.audioLevel + (units ? ' dBFS' : '')
+		}
+		this.instance.setVariableValues(levels)
 
 		// Frequency 1 (or the only frequency, when FD-C is not active) always occupies the same
 		// sample positions: rfAntStatus, rfBitmapA, rfRssiA, rfBitmapB, rfRssiB.
-		channel.rfLevelA = parseInt(sample[9]) - 120
 		channel.rfBitmapA = parseInt(sample[8])
-		channel.rfLevelB = parseInt(sample[11]) - 120
 		channel.rfBitmapB = parseInt(sample[10])
 		channel.antenna = sample[7]
 		channel.antennaA = sample[7].substr(0, 1)
 		channel.antennaB = sample[7].substr(1, 1)
 
-		this.instance.setVariableValues({
-			[`${prefix}antenna`]: channel.antenna,
-			[`${prefix}rf_level_a`]: channel.rfLevelA + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
-			[`${prefix}rf_level_b`]: channel.rfLevelB + (this.instance.config.variableFormat == 'units' ? ' dBm' : ''),
-		})
+		const rf = { [`${prefix}antenna`]: channel.antenna }
+		if (!acnLevels) {
+			channel.rfLevelA = parseInt(sample[9]) - 120
+			channel.rfLevelB = parseInt(sample[11]) - 120
+			rf[`${prefix}rf_level_a`] = channel.rfLevelA + (units ? ' dBm' : '')
+			rf[`${prefix}rf_level_b`] = channel.rfLevelB + (units ? ' dBm' : '')
+		}
+		this.instance.setVariableValues(rf)
 
 		if (this.receiver.quadversityMode == 'ON' && channel.fdMode != 'FD-C') {
 			// Quadversity (4-antenna diversity) extends the Frequency 1 block with a C/D pair.
@@ -387,6 +394,35 @@ export default class WirelessApi {
 		// Note: Quadversity + FD-C simultaneously (8-antenna sample) is not parsed here.
 
 		this.instance.checkFeedbacks('audio_peak_clip', 'signal_quality')
+	}
+
+	/**
+	 * Live levels from the ACN session (AD4D/AD4Q/ANX4): RF at each antenna in dBm (tenths), and the
+	 * channel's audio level in dB. Any field left undefined is unchanged.
+	 *
+	 * @param {number} id - the channel id
+	 * @param {{ rfA?: number, rfB?: number, audio?: number }} meters
+	 */
+	applyAcnMeters(id, { rfA, rfB, audio }) {
+		const channel = this.getChannel(id)
+		const prefix = 'ch_' + id + '_'
+		const units = this.instance.config.variableFormat == 'units'
+		const values = {}
+		if (typeof rfA === 'number') {
+			channel.rfLevelA = rfA
+			values[`${prefix}rf_level_a`] = rfA.toFixed(1) + (units ? ' dBm' : '')
+		}
+		if (typeof rfB === 'number') {
+			channel.rfLevelB = rfB
+			values[`${prefix}rf_level_b`] = rfB.toFixed(1) + (units ? ' dBm' : '')
+		}
+		if (typeof audio === 'number') {
+			channel.audioLevel = audio
+			values[`${prefix}audio_level`] = audio + (units ? ' dBFS' : '')
+		}
+		if (Object.keys(values).length === 0) return
+		this.instance.setVariableValues(values)
+		if (values[`${prefix}audio_level`] !== undefined) this.instance.checkFeedbacks('audio_peak_clip')
 	}
 
 	/**
@@ -547,8 +583,7 @@ export default class WirelessApi {
 		if (key == 'CHAN_NAME') {
 			channel.name = value.replace('{', '').replace('}', '').trim()
 			this.instance.setVariableValues({ [`${prefix}name`]: channel.name })
-			this.instance.updateActions()
-			this.instance.updateFeedbacks()
+			this.instance.refreshChoices()
 		} else if (key == 'METER_RATE') {
 			channel.meterRate = parseInt(value)
 			if (channel.meterRate == 0) {
@@ -1148,8 +1183,7 @@ export default class WirelessApi {
 			case 'SLOT_TX_DEVICE_ID':
 				slot.txDeviceId = value.replace('{', '').replace('}', '').trim()
 				this.instance.setVariableValues({ [`${prefix}tx_device_id`]: slot.txDeviceId })
-				this.instance.updateActions()
-				this.instance.updateFeedbacks()
+				this.instance.refreshChoices()
 				this.instance.checkFeedbacks('slot_is_active')
 				break
 			case 'SLOT_OFFSET':

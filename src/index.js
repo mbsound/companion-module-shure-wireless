@@ -4,7 +4,6 @@ import {
 	InstanceStatus,
 	Regex,
 	runEntrypoint,
-	TCPHelper,
 } from '@companion-module/base'
 import { updateActions } from './actions.js'
 import { updateFeedbacks } from './feedback.js'
@@ -12,114 +11,181 @@ import { updateVariables } from './variables.js'
 import WirelessApi from './internalAPI.js'
 import { BooleanFeedbackUpgradeMap } from './upgrades.js'
 import { Choices, Models } from './setup.js'
+import { AxientBackend, stopSharedBrowser } from './backends/axient.js'
+import { LegacyBackend } from './backends/legacy.js'
+
+/** How long to wait for more channel names before rebuilding the action and feedback lists. */
+const CHOICES_DEBOUNCE_MS = 300
 
 /**
- * Companion instance class for the Shure Wireless Microphones.
+ * Companion instance for Shure wireless receivers and transmitters.
+ *
+ * AD4D, AD4Q and ANX4 run on the ACN + command-strings driver from soundbase-plugin-shure-axient-digital
+ * (`backends/axient.js`); every other model runs on the command strings alone (`backends/legacy.js`).
+ * Both feed the same state store, so variables, feedbacks and icons are shared.
  *
  * @extends InstanceBase
- * @since 1.0.0
  * @author Joseph Adams <josephdadams@gmail.com>
  * @author Keith Rocheck <keith.rocheck@gmail.com>
  */
 class ShureWirelessInstance extends InstanceBase {
-	/**
-	 * Create an instance of a shure WX module.
-	 *
-	 * @param {Object} internal - Companion internals
-	 * @since 1.0.0
-	 */
 	constructor(internal) {
 		super(internal)
 
 		this.updateActions = updateActions.bind(this)
 		this.updateFeedbacks = updateFeedbacks.bind(this)
 		this.updateVariables = updateVariables.bind(this)
+		this.backend = null
+		this.choicesTimer = null
 	}
 
-	/**
-	 * Process an updated configuration array.
-	 *
-	 * @param {Object} config - the new configuration
-	 * @access public
-	 * @since 1.0.0
-	 */
+	get isAxient() {
+		return this.model?.family === 'ad'
+	}
+
+	async init(config) {
+		this.config = config
+		this.model = {}
+
+		this.CHOICES_CHANNELS = []
+		this.CHOICES_CHANNELS_A = []
+		this.CHOICES_SLOTS = []
+		this.CHOICES_SLOTS_A = []
+
+		if (this.config.modelID === undefined || Models[this.config.modelID] === undefined) {
+			this.config.modelID = this.config.modelID ?? 'ulxd4'
+		}
+		this.model = { ...(Models[this.config.modelID] ?? Models.ulxd4) }
+
+		if (this.config.variableFormat === undefined) {
+			this.config.variableFormat = 'units'
+		}
+
+		this.updateStatus(InstanceStatus.Connecting)
+
+		this.api = new WirelessApi(this)
+
+		this.setupFields()
+
+		this.updateActions()
+		this.updateVariables()
+		this.updateFeedbacks()
+
+		this.#startBackend()
+	}
+
 	async configUpdated(config) {
-		let resetConnection = false
-		let cmd
+		const reconnect =
+			this.config.host !== config.host ||
+			String(this.config.port) !== String(config.port) ||
+			this.config.modelID !== config.modelID
+		const metering =
+			this.config.meteringOn !== config.meteringOn ||
+			Number(this.config.meteringInterval) !== Number(config.meteringInterval)
 
-		if (this.config.host != config.host) {
-			resetConnection = true
-		}
-
-		if (this.config.meteringOn !== config.meteringOn) {
-			if (this.model.family == 'psm') {
-				let rate = config.meteringOn === true ? this.config.meteringInterval : 0
-				cmd = `< SET 1 METER_RATE ${rate} >\r\n< SET 2 METER_RATE ${rate} >`
-			} else {
-				if (config.meteringOn === true) {
-					cmd = `< SET 0 METER_RATE ${this.config.meteringInterval} >`
-				} else {
-					cmd = '< SET 0 METER_RATE 0 >'
-				}
-			}
-		} else if (this.config.meteringInterval != config.meteringInterval && this.config.meteringOn === true) {
-			if (this.model.family == 'psm') {
-				cmd = `< SET 1 METER_RATE ${config.meteringInterval} >\r\n< SET 2 METER_RATE ${config.meteringInterval} >`
-			} else {
-				cmd = `< SET 0 METER_RATE ${config.meteringInterval} >`
-			}
-		}
+		// a stored ACN component id belongs to the unit at the old address
+		if (this.config.host !== config.host) delete config.acnCid
+		else if (config.acnCid === undefined && this.config.acnCid !== undefined) config.acnCid = this.config.acnCid
 
 		this.config = config
 
 		if (Models[this.config.modelID] !== undefined) {
-			this.model = Models[this.config.modelID]
+			this.model = { ...Models[this.config.modelID] }
 		} else {
 			this.log('debug', `Shure Model: ${this.config.modelID} NOT FOUND`)
+		}
+
+		if (reconnect) {
+			this.api = new WirelessApi(this)
 		}
 
 		this.updateActions()
 		this.updateFeedbacks()
 		this.updateVariables()
 
-		if (resetConnection === true || this.socket === undefined) {
-			this.initTCP()
-		} else if (cmd !== undefined) {
-			this.socket.send(cmd)
+		if (reconnect || !this.backend) {
+			await this.#stopBackend()
+			this.#startBackend()
+		} else if (metering) {
+			this.backend.applyMetering(config)
 		}
 	}
 
-	/**
-	 * Clean up the instance before it is destroyed.
-	 *
-	 * @access public
-	 * @since 1.0.0
-	 */
 	async destroy() {
-		if (this.socket !== undefined) {
-			this.socket.destroy()
-		}
+		clearTimeout(this.choicesTimer)
+		await this.#stopBackend()
+		stopSharedBrowser()
+		this.log('debug', `destroy ${this.id}`)
+	}
 
-		if (this.heartbeatInterval !== undefined) {
-			clearInterval(this.heartbeatInterval)
+	#startBackend() {
+		if (!this.config.host) {
+			this.updateStatus(InstanceStatus.BadConfig, 'Set the target IP')
+			return
 		}
-
-		if (this.heartbeatTimeout !== undefined) {
-			clearTimeout(this.heartbeatTimeout)
+		const ctx = {
+			api: this.api,
+			model: this.model,
+			config: { ...this.config },
+			log: (level, message) => this.log(level, message),
+			status: (status, message) => this.updateStatus(status, message ?? null),
+			checkFeedbacks: (...ids) => this.checkFeedbacks(...ids),
 		}
+		if (this.isAxient) {
+			this.backend = new AxientBackend({
+				...ctx,
+				saveCid: (cid) => this.#saveCid(cid),
+				channelCount: (n) => this.#setChannelCount(n),
+			})
+		} else {
+			this.backend = new LegacyBackend(ctx)
+		}
+		this.backend.start()
+	}
 
-		this.log('debug', 'destroy', this.id)
+	async #stopBackend() {
+		const backend = this.backend
+		this.backend = null
+		await backend?.stop()
+	}
+
+	/** Keep the unit's ACN component id, so a reconnect does not have to discover it again. */
+	#saveCid(cid) {
+		if ((this.config.acnCid ?? null) === (cid ?? null)) return
+		if (cid) this.config.acnCid = cid
+		else delete this.config.acnCid
+		this.saveConfig(this.config)
+	}
+
+	/** An ANX4 has the channels it is licensed for: rebuild everything for that count. */
+	#setChannelCount(n) {
+		if (this.model.channels === n) return
+		this.model.channels = n
+		this.updateVariables()
+		this.refreshChoices()
+	}
+
+	/** Rebuild the action and feedback lists (channel names in the choices), coalescing bursts. */
+	refreshChoices() {
+		clearTimeout(this.choicesTimer)
+		this.choicesTimer = setTimeout(() => {
+			this.updateActions()
+			this.updateFeedbacks()
+		}, CHOICES_DEBOUNCE_MS)
+	}
+
+	/** Send a command-strings command (without brackets) on the models that use only those. */
+	sendCommand(cmd) {
+		if (this.backend instanceof LegacyBackend) this.backend.send(cmd)
+		else this.log('debug', `not sent (no command-strings backend): ${cmd}`)
 	}
 
 	/**
-	 *
 	 * @param {object} event - action event
 	 * @param {string} option - which event option to parse
-	 * @param {object} context 	- contains variable parser function
+	 * @param {object} context - contains variable parser function
 	 * @param {object} [validate] - optional regexp or range to compare against result
 	 * @returns result of parsing variables in event.options[option] or null if regex or range fails
-	 * @access private
-	 * @since 2.1.0
 	 */
 	async parseActionOption(event, option, context, validate) {
 		let value = String(await context.parseVariablesInString(event.options[option])).trim()
@@ -153,25 +219,14 @@ class ShureWirelessInstance extends InstanceBase {
 				err = [event.controlId, event.actionId, option, 'Out of range'].join(' → ')
 			}
 		}
-		if (err && !this.paramErr) {
-			this.updateStatus(InstanceStatus.BadConfig, err)
-			this.paramErr = true
+		if (err) {
+			this.log('warn', `Invalid action option: ${err}`)
 			value = null
-		} else if (this.paramErr) {
-			this.updateStatus(InstanceStatus.Ok)
-			this.paramErr = false
 		}
 
 		return value
 	}
 
-	/**
-	 * Creates the configuration fields for web config.
-	 *
-	 * @returns {Array} the config fields
-	 * @access public
-	 * @since 1.0.0
-	 */
 	getConfigFields() {
 		return [
 			{
@@ -184,7 +239,7 @@ class ShureWirelessInstance extends InstanceBase {
 			{
 				type: 'textinput',
 				id: 'port',
-				label: 'Target Port',
+				label: 'Command Strings Port',
 				default: 2202,
 				width: 2,
 				regex: Regex.PORT,
@@ -198,6 +253,17 @@ class ShureWirelessInstance extends InstanceBase {
 				default: 'ulxd4',
 			},
 			{
+				type: 'static-text',
+				id: 'axientInfo',
+				label: 'AD4D, AD4Q and ANX4',
+				width: 12,
+				value:
+					'These receivers are controlled over ACN, the protocol Wireless Workbench uses, so Companion must be on the ' +
+					"receiver's network segment (discovery on UDP 8427). Transmitter, ShowLink and quality details come from " +
+					'the command strings port, which must be enabled on the receiver; without it everything else still works.',
+				isVisible: (options) => ['ad4d', 'ad4q', 'anx4'].includes(options.modelID),
+			},
+			{
 				type: 'checkbox',
 				id: 'meteringOn',
 				label: 'Enable Metering?',
@@ -208,10 +274,10 @@ class ShureWirelessInstance extends InstanceBase {
 				type: 'number',
 				id: 'meteringInterval',
 				label: 'Metering Interval (in ms)',
-				tooltip: 'If this value is too low (fast)\nthe GUI may lock up.',
+				tooltip: 'How often meter values are updated, 100 ms or slower. Faster rates load Companion and the receiver.',
 				width: 4,
-				min: 50,
-				max: 99999,
+				min: 100,
+				max: 65535,
 				default: 5000,
 				required: true,
 			},
@@ -231,283 +297,7 @@ class ShureWirelessInstance extends InstanceBase {
 		]
 	}
 
-	/**
-	 * Main initialization function called once the module
-	 * is OK to start doing things.
-	 *
-	 * @param {Object} config - the configuration
-	 * @access public
-	 * @since 1.0.0
-	 */
-	async init(config) {
-		this.config = config
-		this.model = {}
-		this.deviceName = ''
-		this.initDone = false
-
-		this.heartbeatInterval = null
-		this.heartbeatTimeout = null
-
-		this.CHOICES_CHANNELS = []
-		this.CHOICES_CHANNELS_A = []
-		this.CHOICES_SLOTS = []
-		this.CHOICES_SLOTS_A = []
-
-		if (this.config.modelID !== undefined) {
-			this.model = Models[this.config.modelID]
-		} else {
-			this.config.modelID = 'ulxd4'
-			this.model = Models['ulxd4']
-		}
-
-		if (this.config.variableFormat === undefined) {
-			this.config.variableFormat = 'units'
-		}
-
-		this.updateStatus('disconnected', 'Connecting')
-
-		this.api = new WirelessApi(this)
-
-		this.setupFields()
-
-		this.updateActions()
-		this.updateVariables()
-		this.updateFeedbacks()
-
-		this.initTCP()
-	}
-
-	/**
-	 * INTERNAL: use setup data to initalize the tcp socket object.
-	 *
-	 * @access protected
-	 * @since 1.0.0
-	 */
-	initTCP() {
-		this.receiveBuffer = ''
-
-		if (this.socket !== undefined) {
-			this.socket.destroy()
-			delete this.socket
-		}
-
-		if (this.heartbeatInterval !== undefined) {
-			clearInterval(this.heartbeatInterval)
-		}
-
-		if (this.heartbeatTimeout !== undefined) {
-			clearTimeout(this.heartbeatTimeout)
-		}
-
-		if (this.config.port === undefined) {
-			this.config.port = 2202
-		}
-
-		if (this.config.host) {
-			this.socket = new TCPHelper(this.config.host, this.config.port)
-
-			this.socket.on('status_change', (status, message) => {
-				this.updateStatus(status, message)
-			})
-
-			this.socket.on('error', (err) => {
-				this.log('error', `Network error: ${err.message}`)
-			})
-
-			this.socket.on('connect', () => {
-				this.log('debug', 'Connected')
-
-				if (this.model.family == 'psm') {
-					this.socket.send('< GET DEVICE_NAME >')
-					for (let i = 1; i <= this.model.channels; i++) {
-						this.socket.send(`< GET ${i} CHAN_NAME >`)
-						this.socket.send(`< GET ${i} AUDIO_IN_LVL >`)
-						this.socket.send(`< GET ${i} GROUP_CHAN >`)
-						this.socket.send(`< GET ${i} FREQUENCY >`)
-						this.socket.send(`< GET ${i} RF_TX_LVL >`)
-						this.socket.send(`< GET ${i} RF_MUTE >`)
-						this.socket.send(`< GET ${i} AUDIO_TX_MODE >`)
-						this.socket.send(`< GET ${i} AUDIO_IN_LINE_LVL >`)
-					}
-
-					if (this.config.meteringOn === true) {
-						for (let i = 1; i <= this.model.channels; i++) {
-							this.socket.send(`< SET ${i} METER_RATE ${this.config.meteringInterval} >`)
-						}
-					}
-				} else {
-					let cmd = '< GET 0 ALL >'
-					this.socket.send(cmd)
-
-					if (this.model.family == 'ad') {
-						if (this.model.id == 'anx4') {
-							this.socket.send('< GET NUMBER_CHANNELS_LICENSED >')
-							this.socket.send('< GET AVAILABLE_CHANNELS >')
-							this.socket.send('< GET TRANSMISSION_MODE >')
-						}
-						// Query slots on channels so ShowLink slot states and RF outputs are populated immediately
-						let maxSlotChannels = this.model.id == 'anx4' ? 16 : this.model.channels
-						for (let i = 1; i <= this.model.channels; i++) {
-							if (this.model.id == 'anx4') {
-								this.socket.send(`< GET ${i} ANTENNA_CONFIGURATION >`)
-								this.socket.send(`< GET ${i} TX_PHANTOM_POWER >`)
-								this.socket.send(`< GET ${i} TX_HIGH_PASS_FILTER >`)
-							}
-							if (i <= maxSlotChannels) {
-								for (let s = 1; s <= (this.model.slots || 8); s++) {
-									this.socket.send(`< GET ${i} SLOT_STATUS ${s} >`)
-									this.socket.send(`< GET ${i} SLOT_RF_OUTPUT ${s} >`)
-									if (this.model.id == 'anx4') {
-										this.socket.send(`< GET ${i} SLOT_PHANTOM_POWER ${s} >`)
-										this.socket.send(`< GET ${i} SLOT_HIGH_PASS_FILTER ${s} >`)
-									}
-								}
-							}
-						}
-					}
-
-					if (this.model.family == 'ulx') {
-						this.socket.send('< GET SCAN_LOCK >')
-						this.socket.send('< GET SYNC_LOCK >')
-						this.socket.send('< GET NA_DEVICE_NAME >')
-						for (let i = 1; i <= this.model.channels; i++) {
-							this.socket.send(`< GET ${i} NA_CHAN_NAME >`)
-							this.socket.send(`< GET ${i} TX_FW_VER >`)
-						}
-					}
-
-					if (this.model.family == 'slxplus') {
-						this.socket.send('< GET NA_DEVICE_NAME >')
-						this.socket.send('< GET APP_CONN_ENABLED >')
-						for (let i = 1; i <= this.model.channels; i++) {
-							this.socket.send(`< GET ${i} LINK_STATUS >`)
-							this.socket.send(`< GET ${i} LINK_TX_MODEL >`)
-							this.socket.send(`< GET ${i} LINK_TX_BATT_MINS >`)
-							this.socket.send(`< GET ${i} NA_CHAN_NAME >`)
-						}
-					}
-
-					if (this.config.meteringOn === true) {
-						cmd = `< SET 0 METER_RATE ${this.config.meteringInterval} >`
-						this.socket.send(cmd)
-					}
-				}
-
-				this.heartbeatInterval = setInterval(() => {
-					this.socket.send('< GET 1 METER_RATE >')
-				}, 30000)
-			})
-
-			// separate buffered stream into lines with responses
-			this.socket.on('data', (chunk) => {
-				let i = 0,
-					line = '',
-					offset = 0
-				this.receiveBuffer += chunk
-
-				while ((i = this.receiveBuffer.indexOf('>', offset)) !== -1) {
-					line = this.receiveBuffer.substr(offset, i - offset)
-					offset = i + 1
-					this.socket.emit('receiveline', line.toString())
-				}
-
-				this.receiveBuffer = this.receiveBuffer.substr(offset)
-			})
-
-			this.socket.on('receiveline', (line) => {
-				this.processShureCommand(line.replace('< ', '').trim())
-
-				if (line.match(/METER_RATE/)) {
-					if (this.heartbeatTimeout !== undefined) {
-						clearTimeout(this.heartbeatTimeout)
-					}
-
-					this.heartbeatTimeout = setTimeout(this.initTCP.bind(this), 60000)
-				}
-			})
-		}
-	}
-
-	/**
-	 * INTERNAL: Routes incoming data to the appropriate function for processing.
-	 *
-	 * @param {string} command - the command/data type being passed
-	 * @access protected
-	 * @since 1.0.0
-	 */
-	processShureCommand(command) {
-		if ((typeof command === 'string' || command instanceof String) && command.length > 0) {
-			let commandArr = command.split(' ')
-			let commandType = commandArr.shift()
-			let commandNum = parseInt(commandArr[0])
-
-			let joinData = function (commands, start) {
-				let out = ''
-				if (commands.length > 0) {
-					for (let i = start; i < commands.length; i++) {
-						out += commands[i] + ' '
-					}
-				}
-				return out.trim()
-			}
-
-			if (commandType == 'REP' || commandType == 'REPORT') {
-				//this is a report command
-
-				if (isNaN(commandNum)) {
-					//this command isn't about a specific channel
-					this.api.updateReceiver(commandArr[0], joinData(commandArr, 1))
-				} else if (commandArr[1] && commandArr[1].startsWith('SLOT')) {
-					//this command is about a specific SLOT in AD
-					this.api.updateSlot(commandNum, parseInt(commandArr[2]), commandArr[1], joinData(commandArr, 3))
-				} else if (commandArr[1]) {
-					//this command is about a specific channel
-					this.api.updateChannel(commandNum, commandArr[1], joinData(commandArr, 2))
-				}
-			} else if (commandType == 'SAMPLE') {
-				//this is a sample command
-
-				switch (this.model.family) {
-					case 'ulx':
-					case 'qlx':
-						this.api.parseULXSample(commandNum, command)
-						break
-					case 'ad':
-						this.api.parseADSample(commandNum, command)
-						break
-					case 'slx':
-					case 'slxplus':
-						this.api.parseSLXSample(commandNum, command)
-						break
-				}
-
-				this.checkFeedbacks('sample')
-			}
-		}
-	}
-
-	/**
-	 * INTERNAL: send a command to the receiver.
-	 *
-	 * @access protected
-	 * @since 1.2.0
-	 */
-	sendCommand(cmd) {
-		if (cmd !== undefined) {
-			if (this.socket !== undefined && this.socket.isConnected) {
-				this.socket.send(`< ${cmd} >`)
-			} else {
-				this.log('debug', 'Socket not connected :(')
-			}
-		}
-	}
-
-	/**
-	 * INTERNAL: use model data to define the channel and slot choicess.
-	 *
-	 * @access protected
-	 * @since 1.0.0
-	 */
+	/** Channel and slot choices for actions and feedbacks, from the model and the names heard so far. */
 	setupChannelChoices() {
 		this.CHOICES_CHANNELS = []
 		this.CHOICES_CHANNELS_A = []
@@ -522,7 +312,7 @@ class ShureWirelessInstance extends InstanceBase {
 			this.CHOICES_SLOTS_A.push({ id: '0:0', label: 'All Channels & Slots' })
 		}
 
-		let maxSlotChannels = this.model.id == 'anx4' ? 16 : this.model.channels
+		let maxSlotChannels = this.model.id == 'anx4' ? Math.min(16, this.model.channels) : this.model.channels
 
 		for (let i = 1; i <= this.model.channels; i++) {
 			let data = `Channel ${i}`
@@ -557,12 +347,7 @@ class ShureWirelessInstance extends InstanceBase {
 		this.SLOTS_A_FIELD.choices = this.CHOICES_SLOTS_A
 	}
 
-	/**
-	 * Set up the fields used in actions and feedbacks
-	 *
-	 * @access protected
-	 * @since 1.1.0
-	 */
+	/** The fields used in actions and feedbacks. */
 	setupFields() {
 		this.CHANNELS_FIELD = {
 			type: 'dropdown',

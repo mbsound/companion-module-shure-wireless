@@ -60,11 +60,6 @@ export const Choices = {
 		{ id: 'OFF', label: 'High Density Off' },
 		{ id: 'TOGGLE', label: 'Toggle High Density' },
 	],
-	TransmissionMode: [
-		{ id: 'STANDARD', label: 'Standard Mode' },
-		{ id: 'HIGH_DENSITY', label: 'High Density Mode' },
-		{ id: 'TOGGLE', label: 'Toggle Mode' },
-	],
 	AudioSumming: [
 		{ id: 'OFF', label: 'Off' },
 		{ id: '1+2', label: '1+2' },
@@ -163,6 +158,8 @@ export const Choices = {
 
 export const Regex = {
 	Frequency: '/^\\d{3,4}\\.\\d{3}$/',
+	GainSet: '/^[-+]?\\d+$/',
+	GainIncrement: { range: { min: 1, max: 60 } },
 	Name: '/^.{1,31}$/',
 	GroupChan: '/^([0-9]{1,2}|--),([0-9]{1,2}|--)$/',
 	PsmGainSet: { range: { min: -67, max: 0 } },
@@ -275,13 +272,6 @@ export const Fields = {
 		id: 'mode',
 		default: 'ON',
 		choices: Choices.HighDensity,
-	},
-	TransmissionMode: {
-		type: 'dropdown',
-		label: 'Transmission Mode',
-		id: 'mode',
-		default: 'HIGH_DENSITY',
-		choices: Choices.TransmissionMode,
 	},
 	AudioSumming: {
 		type: 'dropdown',
@@ -440,5 +430,12 @@ export const Fields = {
 		id: 'value',
 		default: 'AUTOMATIC',
 		choices: Choices.AntennaConfiguration,
+	},
+	AntennaPair: {
+		type: 'dropdown',
+		label: 'Antenna Pair',
+		id: 'value',
+		default: 'AB',
+		choices: Choices.AntennaConfiguration.filter((c) => c.id === 'AB' || c.id === 'CD'),
 	},
 }

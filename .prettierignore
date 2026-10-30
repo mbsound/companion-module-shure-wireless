@@ -3,3 +3,5 @@ package.json
 pkg/
 dist/
 /LICENSE.md
+# vendored from soundbase-plugin-shure-ad4q: kept in its upstream formatting (see src/driver/VENDORED.md)
+src/driver/
