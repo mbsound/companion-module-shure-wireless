@@ -21,16 +21,15 @@ This module provides two-way control, real-time status monitoring, dynamic varia
 
 ## How AD4D, AD4Q and ANX4 Are Controlled (3.0)
 
-From version 3.0, Axient Digital receivers (AD4D, AD4Q) and the ANX4 run on the driver from
-[soundbase-plugin-shure-axient-digital](https://github.com/mbsound/soundbase-plugin-shure-axient-digital), which has
-been tested on real AD4Q, AD4D and ANX4 units. It is vendored unchanged under `src/driver/` apart
-from three marked additions listed in [`src/driver/VENDORED.md`](src/driver/VENDORED.md).
+From version 3.0, Axient Digital receivers (AD4D, AD4Q) and the ANX4 run on a driver that has been
+tested on real AD4Q, AD4D and ANX4 units. It lives under `src/driver/`, unchanged from its source
+apart from three marked additions listed in [`src/driver/VENDORED.md`](src/driver/VENDORED.md).
 
-- **ACN session (UDP).** Settings and meters use ACN, the protocol Wireless Workbench uses: names,
+- **ACN session (UDP).** Settings and meters use ACN, Shure's network control protocol: names,
   gain, mute, frequency, frequency diversity, encryption, transmission mode, band, the ANX4's
   licensed channel count and per-channel antenna pair. Every change is read back from the unit, so
   what Companion shows is what the receiver holds. Reads are batched and paced; the receiver pushes
-  changes made on its panel or in Workbench as they happen.
+  changes made on its front panel or from other control software as they happen.
 - **Command strings (TCP 2202).** The transmitter (model, name, battery, power, mute mode, talk
   switch, locks), ShowLink slots, the status flags (interference, unregistered transmitter,
   encryption mismatch) and the quality/LED meter line come from the documented port. One request is
@@ -314,4 +313,4 @@ ANX4 expands the supported transmitter family to include the Shure **AD3** (stan
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details. The vendored driver in `src/driver/` is MIT-licensed from [soundbase-plugin-shure-axient-digital](https://github.com/mbsound/soundbase-plugin-shure-axient-digital).
+MIT License. See [LICENSE](LICENSE) for details. The driver in `src/driver/` is also MIT-licensed; its source is recorded in [`src/driver/VENDORED.md`](src/driver/VENDORED.md).
