@@ -61,6 +61,9 @@ test('AD4Q keeps the action IDs existing buttons use; transmission mode is no lo
 		'slot_polarity',
 		'slot_tx_device_id',
 		'set_talk_routing',
+		'tone_generator',
+		'set_tone_level',
+		'set_tone_frequency',
 	]) {
 		assert.ok(ids.includes(id), `${id} is missing`)
 	}

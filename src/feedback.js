@@ -612,6 +612,35 @@ export function updateFeedbacks() {
 			},
 		}
 
+		feedbacks['tone_generator'] = {
+			type: 'boolean',
+			name: 'Tone Generator On',
+			description: 'If the tone generator is on (any level), change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(255, 128, 0),
+			},
+			options: [this.CHANNELS_FIELD],
+			callback: ({ options }) => {
+				return this.api.getChannel(parseInt(options.channel)).toneLevelDb != null
+			},
+		}
+
+		feedbacks['tone_level'] = {
+			type: 'boolean',
+			name: 'Tone Generator Level',
+			description: 'If the tone generator is at the selected level (or off), change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(0, 0, 0),
+				bgcolor: combineRgb(255, 255, 0),
+			},
+			options: [this.CHANNELS_FIELD, Fields.ToneLevel],
+			callback: ({ options }) => {
+				const level = this.api.getChannel(parseInt(options.channel)).toneLevelDb
+				return options.level === 'OFF' ? level == null : level === Number(options.level)
+			},
+		}
+
 		feedbacks['talk_routing'] = {
 			type: 'boolean',
 			name: 'Talk Switch Routing',

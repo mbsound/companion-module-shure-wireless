@@ -133,6 +133,8 @@ export function updateVariables() {
 			variables.push({ variableId: `${prefix}_antenna_configuration`, name: `Channel ${i} Antenna Configuration` })
 			variables.push({ variableId: `${prefix}_talk_normal`, name: `Channel ${i} Outputs, Talk Switch Released` })
 			variables.push({ variableId: `${prefix}_talk_pressed`, name: `Channel ${i} Outputs, Talk Switch Pressed` })
+			variables.push({ variableId: `${prefix}_tone_level`, name: `Channel ${i} Tone Generator Level` })
+			variables.push({ variableId: `${prefix}_tone_frequency`, name: `Channel ${i} Tone Generator Frequency` })
 		}
 
 		if (this.model.family != 'slx' && this.model.family != 'slxplus') {

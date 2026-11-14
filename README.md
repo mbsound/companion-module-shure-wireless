@@ -47,6 +47,11 @@ routing" action (one output and position at a time, On, Off or Toggle, any chann
 by the "Talk Switch Routing" feedback and the `ch_N_talk_normal` / `ch_N_talk_pressed` variables.
 Each change is read back from the receiver.
 
+**Tone generator.** Per channel: "Tone generator on/off" switches the tone on at -30 dB, off, or
+toggles it; "Set tone generator level" picks Off or -60 to -12 dB in 6 dB steps; "Set tone
+generator frequency" takes 20-20000 Hz. The "Tone Generator On" and "Tone Generator Level"
+feedbacks and the `ch_N_tone_level` / `ch_N_tone_frequency` variables follow the receiver.
+
 **ANX4 firmware below 1.2.** Two ANX4s on firmware 1.0.33.1 and 1.1.7.0 were seen restarting about
 every 45 minutes under a monitoring session. On firmware below 1.2 the module therefore does not
 read or set the antenna pairs or the transmission mode, and counts the licensed channels from

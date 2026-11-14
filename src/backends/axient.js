@@ -16,6 +16,10 @@ import { CommandClient, COMMAND_PORT, STATUS_PROPS, TX_PROPS } from '../driver/c
 import {
 	ANTENNA_SELECTIONS,
 	TALK_OUTPUTS,
+	TONE_FREQ_MAX_HZ,
+	TONE_FREQ_MIN_HZ,
+	TONE_LEVELS_DB,
+	toneLevelDb,
 	CHANNEL_NAME_MAX,
 	DEVICE_NAME_MAX,
 	GAIN_MAX_DB,
@@ -79,6 +83,9 @@ const SLOT_DETAIL_PROPS = Object.freeze([
 	'SLOT_BATT_MINS',
 ])
 const ANX4_SLOT_DETAIL_PROPS = Object.freeze(['SLOT_PHANTOM_POWER', 'SLOT_HIGH_PASS_FILTER'])
+
+/** The level of the one-press tone switch, as in SoundBase. */
+const QUICK_TONE_DB = -30
 
 const DIVERSITY_TOKEN = Object.freeze({ Off: 'OFF', Selection: 'FD-S', Combining: 'FD-C' })
 const TRANSMISSION_MODE_TOKEN = Object.freeze({
@@ -460,6 +467,13 @@ export class AxientBackend {
 			case 'talk':
 				api.updateTalkRouting(channel, value)
 				break
+			case 'toneLevelDb':
+				// the unit holds -128 for Off
+				api.updateTone(channel, { levelDb: toneLevelDb(value) })
+				break
+			case 'toneFreqHz':
+				api.updateTone(channel, { freqHz: value })
+				break
 			// the ACN transmitter bank stands in only while the control port is not giving these
 			case 'txModel':
 				if (!this.commandsLive) api.updateChannel(channel, 'TX_MODEL', value ?? 'UNKNOWN')
@@ -768,6 +782,37 @@ export class AxientBackend {
 				const on = choice === 'TOGGLE' ? current !== true : choice === 'ON'
 				await unit.setTalkOutput(c, outputId, on)
 			}
+		})
+	}
+
+	/** Tone generator level: `level` is OFF or one of -60 to -12 dB in 6 dB steps. */
+	setToneLevel(channel, level) {
+		const off = String(level).toUpperCase() === 'OFF'
+		const db = off ? null : Number(level)
+		if (!off && !TONE_LEVELS_DB.includes(db)) {
+			return this.#refuse(`tone level ${level}: choose Off or one of ${TONE_LEVELS_DB.join(', ')} dB`)
+		}
+		return this.#write(`tone level ${off ? 'Off' : `${db} dB`}`, async (unit) => {
+			for (const c of this.#targets(channel)) await unit.setChannel(c, 'toneLevelDb', db)
+		})
+	}
+
+	/** The one-press tone switch, as SoundBase offers it: on is the tone at -30 dB, off is Off. `choice` is ON, OFF or TOGGLE. */
+	setToneGenerator(channel, choice) {
+		return this.#write(`tone generator ${choice}`, async (unit) => {
+			for (const c of this.#targets(channel)) {
+				const on = choice === 'TOGGLE' ? this.api.getChannel(c).toneLevelDb == null : choice === 'ON'
+				await unit.setChannel(c, 'toneLevelDb', on ? QUICK_TONE_DB : null)
+			}
+		})
+	}
+
+	/** Tone generator frequency in Hz, clamped to 20-20000. */
+	setToneFrequency(channel, hz) {
+		if (!Number.isFinite(Number(hz))) return this.#refuse(`tone frequency ${hz}: not a number`)
+		const value = clamp(Math.round(Number(hz)), TONE_FREQ_MIN_HZ, TONE_FREQ_MAX_HZ)
+		return this.#write(`tone frequency ${value} Hz`, async (unit) => {
+			for (const c of this.#targets(channel)) await unit.setChannel(c, 'toneFreqHz', value)
 		})
 	}
 

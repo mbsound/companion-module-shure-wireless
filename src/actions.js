@@ -380,6 +380,32 @@ export function updateActions() {
 	}
 
 	if (this.model.family == 'ad') {
+		actions['tone_generator'] = {
+			name: 'Tone generator on/off',
+			description: 'Switch the tone generator on (at -30 dB) or off, or toggle it.',
+			options: [this.CHANNELS_A_FIELD, Fields.ToneSwitch],
+			callback: async ({ options }) => {
+				await this.backend?.setToneGenerator(options.channel, options.choice)
+			},
+		}
+
+		actions['set_tone_level'] = {
+			name: 'Set tone generator level',
+			options: [this.CHANNELS_A_FIELD, Fields.ToneLevel],
+			callback: async ({ options }) => {
+				await this.backend?.setToneLevel(options.channel, options.level)
+			},
+		}
+
+		actions['set_tone_frequency'] = {
+			name: 'Set tone generator frequency',
+			options: [this.CHANNELS_A_FIELD, Fields.ToneFrequency],
+			callback: async (event, context) => {
+				let hz = await this.parseActionOption(event, 'frequency', context, Regex.ToneFrequency)
+				if (hz !== null) await this.backend?.setToneFrequency(event.options.channel, hz)
+			},
+		}
+
 		actions['set_talk_routing'] = {
 			name: 'Set talk switch routing',
 			description:

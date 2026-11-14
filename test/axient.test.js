@@ -218,3 +218,55 @@ test('a unit that drops the session twice within the window is stood down, then 
 	assert.equal(backend.commands, null, 'the control port stayed open during the stand-down')
 	await until(() => lastStatus(inst) === 'ok' && backend.unit?.connected, 8000, 'back after the stand-down')
 })
+
+test('AD4Q: the tone generator: level, the one-press switch, frequency, all read back from the unit', async (t) => {
+	const { inst, fake, backend } = await axientOnFake(t)
+	await until(() => inst.variables.ch_1_tone_level, 6000, 'tone state')
+	// a fresh unit: the tone is off (the unit holds -128) at 400 Hz
+	assert.equal(inst.variables.ch_1_tone_level, 'Off')
+	assert.equal(inst.variables.ch_1_tone_frequency, '400 Hz')
+
+	await backend.setToneLevel(1, '-42')
+	assert.equal(held(fake, 1, CH.TONE_LEVEL_DB).readInt8(0), -42)
+	await until(() => inst.variables.ch_1_tone_level === '-42 dB', 2000, 'level read-back')
+
+	// the one-press switch toggles between Off and -30 dB
+	await backend.setToneGenerator(1, 'TOGGLE')
+	assert.equal(held(fake, 1, CH.TONE_LEVEL_DB).readInt8(0), -128)
+	await until(() => inst.api.getChannel(1).toneLevelDb === null, 2000, 'off read-back')
+	await backend.setToneGenerator(1, 'TOGGLE')
+	assert.equal(held(fake, 1, CH.TONE_LEVEL_DB).readInt8(0), -30)
+	await backend.setToneGenerator(0, 'OFF')
+	for (let c = 1; c <= 4; c += 1) assert.equal(held(fake, c, CH.TONE_LEVEL_DB).readInt8(0), -128, `channel ${c}`)
+
+	// a level off the 6 dB grid is not sent
+	const writes = fake.writes.length
+	await backend.setToneLevel(2, '-40')
+	assert.equal(fake.writes.length, writes)
+
+	// frequency is clamped to 20-20000 Hz
+	await backend.setToneFrequency(3, 50_000)
+	assert.equal(held(fake, 3, CH.TONE_FREQ_HZ).readUInt16BE(0), 20_000)
+	await until(() => inst.variables.ch_3_tone_frequency === '20000 Hz', 2000, 'frequency read-back')
+	await backend.setToneFrequency(3, 1000)
+	assert.equal(held(fake, 3, CH.TONE_FREQ_HZ).readUInt16BE(0), 1000)
+})
+
+test('AD4Q: the tone feedbacks follow the unit', async (t) => {
+	const ctx = await axientOnFake(t)
+	const { inst, backend } = ctx
+	await until(() => inst.variables.ch_2_tone_level, 6000, 'tone state')
+	const { updateFeedbacks } = await import('../src/feedback.js')
+	inst.CHANNELS_FIELD = { type: 'dropdown', id: 'channel', default: '1', choices: [] }
+	inst.SLOTS_FIELD = { type: 'dropdown', id: 'slot', default: '1:1', choices: [] }
+	inst.setFeedbackDefinitions = (d) => (inst.feedbacks = d)
+	updateFeedbacks.call(inst)
+	const fb = (id, options) => inst.feedbacks[id].callback({ options })
+	assert.equal(fb('tone_generator', { channel: '2' }), false)
+	assert.equal(fb('tone_level', { channel: '2', level: 'OFF' }), true)
+	await backend.setToneGenerator(2, 'ON')
+	await until(() => inst.api.getChannel(2).toneLevelDb === -30, 2000, 'tone on')
+	assert.equal(fb('tone_generator', { channel: '2' }), true)
+	assert.equal(fb('tone_level', { channel: '2', level: '-30' }), true)
+	assert.equal(fb('tone_level', { channel: '2', level: 'OFF' }), false)
+})

@@ -3,7 +3,7 @@
 	"name": "shure-wireless (EXPERIMENTAL FORK)",
 	"shortname": "shure-wx-experimental",
 	"description": "EXPERIMENTAL community fork of the Shure Wireless module. AD4D, AD4Q and ANX4 run on an ACN driver tested on real hardware; also adds PSM1000 and SLX-D+ and various fixes not present in the officially bundled module. Not affiliated with or supported by Bitfocus or Shure. Use a distinct version/prerelease build to avoid being confused with the bundled release.",
-	"version": "3.0.0-experimental.2",
+	"version": "3.0.0-experimental.3",
 	"isPrerelease": true,
 	"license": "MIT",
 	"repository": "git+https://github.com/mbsound/companion-module-shure-wireless.git",

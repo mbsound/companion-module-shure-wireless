@@ -167,6 +167,8 @@ export default class WirelessApi {
 				txFwVer: '', // (ULX) Transmitter Firmware Version
 				antennaConfiguration: 'AUTOMATIC', // (ANX4) AB - CD - AUTOMATIC - QUADVERSITY
 				talk: null, // (AD/ANX4, ACN) talk-switch routing: { xlrNormal: true, ..., dantePressed: false }
+				toneLevelDb: null, // (AD/ANX4, ACN) tone generator level in dB, -60 to -12; null = Off
+				toneFreqHz: null, // (AD/ANX4, ACN) tone generator frequency, 20-20000 Hz
 				txPhantomPower: 'Unknown', // (AD/ANX4: AD3/ADX3) Off - +12V - +48V - Unknown
 				txHighPassFilter: 'Unknown', // (AD/ANX4: AD3/ADX3) Off - 40 Hz - 80 Hz - 160 Hz - 240 Hz - Unknown
 			}
@@ -426,6 +428,30 @@ export default class WirelessApi {
 		}
 
 		this.instance.checkFeedbacks('audio_peak_clip', 'signal_quality')
+	}
+
+	/**
+	 * The tone generator from the ACN session (AD4D/AD4Q/ANX4). Either field may be left out.
+	 *
+	 * @param {number} id - the channel id
+	 * @param {{ levelDb?: number|null, freqHz?: number }} tone - level in dB (null is Off), frequency in Hz
+	 */
+	updateTone(id, { levelDb, freqHz }) {
+		const channel = this.getChannel(id)
+		const prefix = 'ch_' + id + '_'
+		const units = this.instance.config.variableFormat == 'units'
+		const values = {}
+		if (levelDb !== undefined) {
+			channel.toneLevelDb = levelDb
+			values[`${prefix}tone_level`] = levelDb === null ? 'Off' : levelDb + (units ? ' dB' : '')
+		}
+		if (typeof freqHz === 'number') {
+			channel.toneFreqHz = freqHz
+			values[`${prefix}tone_frequency`] = freqHz + (units ? ' Hz' : '')
+		}
+		if (Object.keys(values).length === 0) return
+		this.instance.setVariableValues(values)
+		this.instance.checkFeedbacks('tone_generator', 'tone_level')
 	}
 
 	/**

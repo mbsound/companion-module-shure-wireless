@@ -148,6 +148,15 @@ export const Choices = {
 		{ id: '160', label: '160 Hz' },
 		{ id: '240', label: '240 Hz' },
 	],
+	ToneLevel: [
+		{ id: 'OFF', label: 'Off' },
+		...[-60, -54, -48, -42, -36, -30, -24, -18, -12].map((db) => ({ id: String(db), label: `${db} dB` })),
+	],
+	ToneSwitch: [
+		{ id: 'ON', label: 'Tone on (-30 dB)' },
+		{ id: 'OFF', label: 'Tone off' },
+		{ id: 'TOGGLE', label: 'Toggle' },
+	],
 	TalkOutput: [
 		{ id: 'xlr', label: 'XLR' },
 		{ id: 'trs', label: 'TRS' },
@@ -180,6 +189,7 @@ export const Regex = {
 	GroupChan: '/^([0-9]{1,2}|--),([0-9]{1,2}|--)$/',
 	GroupChanPart: '/^([0-9]{1,3}|--)$/',
 	GainSet: { range: { min: -18, max: 42 } },
+	ToneFrequency: { range: { min: 20, max: 20000 } },
 	GainIncrement: { range: { min: 1, max: 60 } },
 	SlotOffsetSet: { range: { min: -12, max: 21 } },
 	SlotOffsetIncrement: { range: { min: 1, max: 33 } },
@@ -451,6 +461,27 @@ export const Fields = {
 		id: 'value',
 		default: 'AUTOMATIC',
 		choices: Choices.AntennaConfiguration,
+	},
+	ToneLevel: {
+		type: 'dropdown',
+		label: 'Tone level',
+		id: 'level',
+		default: 'OFF',
+		choices: Choices.ToneLevel,
+	},
+	ToneSwitch: {
+		type: 'dropdown',
+		label: 'Tone generator',
+		id: 'choice',
+		default: 'TOGGLE',
+		choices: Choices.ToneSwitch,
+	},
+	ToneFrequency: {
+		type: 'textinput',
+		label: 'Tone frequency (20-20000 Hz)',
+		id: 'frequency',
+		default: '1000',
+		useVariables: true,
 	},
 	TalkOutput: {
 		type: 'dropdown',
