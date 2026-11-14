@@ -42,7 +42,9 @@ import {
   rosterAddrs,
   rosterIdAddr,
   SYNC_PRESETS,
-  KEY,} from '../ad4q/properties.js';
+  KEY,
+  STRING_KEYS_FROM,
+  versionAtLeast,} from '../ad4q/properties.js';
 
 const u8 = (n) => Buffer.from([n & 0xff]);
 const u16 = (n) => {
@@ -90,8 +92,10 @@ export class FakeAd4q {
     scanChunkMs = 1,
     restartMs = 400,
     channels = null,
+    firmware = '1.2.18.0',
   } = {}) {
     this.model = model;
+    this.firmware = firmware;
     /** an ANX4 fake advertises its Axient Digital module and has the channels it is "licensed" for (16 by default) */
     this.anx4 = model === 'ANX4';
     this.echoSets = echoSets;
@@ -159,6 +163,7 @@ export class FakeAd4q {
     };
     put(DEV.MODEL, encodeString(this.anx4 ? this.model : `${this.model}-A`));
     put(DEV.SERIAL, encodeString('SIM000001'));
+    put(DEV.FIRMWARE, encodeString(this.firmware));
     put(DEV.NAME, encodeString(this.uacn.slice(0, 31)), (v) => v.length >= 2);
     put(DEV.POWER_LOCK, u8(0), inSet(0, 1));
     put(DEV.FAN_ALWAYS_ON, u8(0), inSet(0, 1));
@@ -484,6 +489,8 @@ export class FakeAd4q {
     const reply = (v, val = Buffer.alloc(0)) => strBatch(v, [{ key, value: val }]);
     // the ANX4's own string-keyed settings: the licence and the antenna pair per channel
     if (this.anx4 && this.anxKeys.has(key)) {
+      // what pre-1.2 firmware does with these is unknown (two units restarted under them); the fake refuses
+      if (!versionAtLeast(this.firmware, STRING_KEYS_FROM)) return [reply(DMP.GET_FAIL, u8(2))];
       if (vector === DMP.GET) return [reply(DMP.GET_REPLY, this.anxKeys.get(key))];
       if (vector === DMP.SET && /ANTENNA_SELECTION_MODE/.test(key)) {
         if (value.length !== 1 || value[0] > 1) return [reply(DMP.SET_FAIL, u8(5))];

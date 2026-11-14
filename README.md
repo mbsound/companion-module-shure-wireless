@@ -41,6 +41,18 @@ apart from three marked additions listed in [`src/driver/VENDORED.md`](src/drive
 receiver is found by SLP discovery (UDP 8427, unicast to the configured IP plus multicast), and the
 session uses UDP (port 57383 by default). Its component ID is remembered after the first connection.
 
+**Talk switch routing.** For each channel, whether each output (XLR, TRS, AES3, Dante) carries
+the channel with the talk switch released and with it pressed. Set with the "Set talk switch
+routing" action (one output and position at a time, On, Off or Toggle, any channel or all), shown
+by the "Talk Switch Routing" feedback and the `ch_N_talk_normal` / `ch_N_talk_pressed` variables.
+Each change is read back from the receiver.
+
+**ANX4 firmware below 1.2.** Two ANX4s on firmware 1.0.33.1 and 1.1.7.0 were seen restarting about
+every 45 minutes under a monitoring session. On firmware below 1.2 the module therefore does not
+read or set the antenna pairs or the transmission mode, and counts the licensed channels from
+their names instead. On any receiver, a session that drops twice within ten minutes without a
+reason is not reconnected for fifteen minutes; the connection status says so.
+
 **Read-only by design.** Settings that restart the receiver or unpair transmitters (High Density /
 transmission mode, band, encryption, Quadversity) are shown as variables and feedbacks but cannot be
 changed from Companion. The `set_transmission_mode` action that earlier versions offered for AD

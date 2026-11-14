@@ -62,6 +62,24 @@ export const isBandName = (s) => { const t = String(s ?? '').trim(); return t.le
 /** The ANX4's antenna pair per channel, by the byte the unit stores. */
 export const ANTENNA_SELECTIONS = Object.freeze(['AB', 'CD']);
 
+/**
+ * The earliest ANX4 firmware known to answer string-keyed requests (the licence, the antenna
+ * pairs, the transmission mode). 1.2.18.0 does; two units on 1.0.33.1 / 1.1.7.0 restarted
+ * every ~45 minutes under a session that sent them (2026-11-02), so below this floor none are
+ * sent and those features are simply absent.
+ */
+export const STRING_KEYS_FROM = '1.2.0';
+/** `1.2.18.0` >= `1.2.0`? Numeric, dotted; a missing or malformed version compares as 0. */
+export function versionAtLeast(version, floor) {
+  const parts = (v) => String(v ?? '').trim().split('.').map((x) => (/^\d+$/.test(x) ? Number(x) : 0));
+  const a = parts(version); const b = parts(floor);
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    const d = (a[i] ?? 0) - (b[i] ?? 0);
+    if (d !== 0) return d > 0;
+  }
+  return true;
+}
+
 /** A model whose channel count is a licence, read from the unit. */
 export const isLicensedModel = (model) => MODELS[String(model ?? '').toUpperCase()]?.licensed === true;
 
@@ -127,6 +145,7 @@ export const DEV = Object.freeze({
   FAN_ALWAYS_ON: 0x01000025,
   UPTIME: 0x0100002b,
   BAND: 0x01070003,
+  FIRMWARE: 0x01000009, // string, "1.2.18.0"
   HD_MODE: 0x01070004,
   QUADVERSITY: 0x01070009,
   ANTENNA_BIAS: 0x01070405,
@@ -398,6 +417,7 @@ export const DEVICE_PROPS = Object.freeze([
   { key: 'model', addr: DEV.MODEL, decode: decodeString },
   { key: 'serial', addr: DEV.SERIAL, decode: decodeString },
   { key: 'name', addr: DEV.NAME, decode: decodeString },
+  { key: 'firmware', addr: DEV.FIRMWARE, decode: decodeString },
   { key: 'powerLock', addr: DEV.POWER_LOCK, decode: decodeBool },
   { key: 'fanAlwaysOn', addr: DEV.FAN_ALWAYS_ON, decode: decodeBool },
   { key: 'band', addr: DEV.BAND, decode: decodeString },

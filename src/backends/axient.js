@@ -15,6 +15,7 @@ import { SlpBrowser } from '../driver/acn/slp.js'
 import { CommandClient, COMMAND_PORT, STATUS_PROPS, TX_PROPS } from '../driver/cmdstrings/client.js'
 import {
 	ANTENNA_SELECTIONS,
+	TALK_OUTPUTS,
 	CHANNEL_NAME_MAX,
 	DEVICE_NAME_MAX,
 	GAIN_MAX_DB,
@@ -30,7 +31,18 @@ import {
 
 /** The reference adapter's timings. */
 const REFRESH_MS = 5000
+/** An ANX4 is re-read no more often than this. */
+const LICENSED_MIN_REFRESH_MS = 60_000
 const COMMAND_RETRY_MS = 10_000
+/** The command-port retry backs off this far while the port keeps refusing (an ANX4 without command strings). */
+const COMMAND_RETRY_MAX_MS = 60_000
+/**
+ * A unit that drops an established session twice within LOSS_WINDOW_MS is left alone for
+ * STAND_DOWN_MS: two ANX4s on pre-1.2 firmware restarted about every 45 minutes under a monitoring
+ * session, and every reconnect only started the next cycle.
+ */
+const LOSS_WINDOW_MS = 10 * 60_000
+const STAND_DOWN_MS = 15 * 60_000
 const DISCOVERY_MS = 6000
 const RECONNECT_MIN_MS = 2000
 const RECONNECT_MAX_MS = 30_000
@@ -80,6 +92,9 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 const isPrintable = (s) => /^[\x20-\x7e]*$/.test(s)
 
+/** Session losses by host, kept across reconnects and config changes: `{ at: [ms...], until: ms }`. */
+const losses = new Map()
+
 /** One SLP browse per process, shared by every connection in it (UDP 8427 is a shared port). */
 let sharedBrowser = null
 function browserFor(host, log) {
@@ -104,6 +119,7 @@ export class AxientBackend {
 	 *   saveCid?: (cid: string|null) => void,
 	 *   channelCount?: (n: number) => void,
 	 *   driver?: object,
+	 *   timings?: { lossWindowMs?: number, standDownMs?: number },
 	 * }} ctx  `driver` overrides the device options (tests: a simulator's port, cid and timings)
 	 */
 	constructor(ctx) {
@@ -125,6 +141,8 @@ export class AxientBackend {
 		this.transmissionMode = null
 		this.timers = { refresh: null, meters: null, reconnect: null, commandRetry: null }
 		this.reconnectMs = RECONNECT_MIN_MS
+		this.commandRetryMs = null
+		this.timings = { lossWindowMs: LOSS_WINDOW_MS, standDownMs: STAND_DOWN_MS, ...ctx.timings }
 		this.closed = false
 	}
 
@@ -186,6 +204,12 @@ export class AxientBackend {
 
 	async #connectUnit() {
 		if (this.closed) return
+		const until = this.#standDownUntil()
+		if (until) {
+			this.ctx.status('connection_failure', this.#standDownMessage(until))
+			this.#scheduleReconnect(until - Date.now())
+			return
+		}
 		this.ctx.status('connecting', `Connecting to ${this.host}`)
 		let unit = null
 		try {
@@ -225,10 +249,21 @@ export class AxientBackend {
 				this.ctx.channelCount?.(unit.channels)
 				this.api.updateReceiver('NUMBER_CHANNELS_LICENSED', String(unit.channels))
 			}
+			if (this.licensed && !unit.stringKeys) {
+				this.log(
+					'info',
+					`ANX4 firmware ${
+						unit.firmware ?? 'unknown'
+					}: the antenna pairs and transmission mode are not read or set below firmware 1.2`
+				)
+			}
 			await this.#refresh()
 			await unit.subscribeAll()
 			this.reconnectMs = RECONNECT_MIN_MS
-			const every = REFRESH_MS * Math.max(1, Math.ceil(unit.channels / 4))
+			const every = Math.max(
+				REFRESH_MS * Math.max(1, Math.ceil(unit.channels / 4)),
+				this.licensed ? LICENSED_MIN_REFRESH_MS : 0
+			)
 			clearInterval(this.timers.refresh)
 			this.timers.refresh = setInterval(() => this.#refresh().catch(() => {}), every)
 			this.timers.refresh.unref?.()
@@ -265,13 +300,43 @@ export class AxientBackend {
 		)
 	}
 
-	#scheduleReconnect() {
+	/** Reconnect after the backoff, or after `waitMs` when given (the end of a stand-down). */
+	#scheduleReconnect(waitMs) {
 		if (this.closed) return
 		clearTimeout(this.timers.reconnect)
-		const wait = this.reconnectMs
-		this.reconnectMs = Math.min(RECONNECT_MAX_MS, this.reconnectMs * 2)
-		this.timers.reconnect = setTimeout(() => void this.#connectUnit(), wait)
+		let wait = waitMs
+		if (wait === undefined) {
+			wait = this.reconnectMs
+			this.reconnectMs = Math.min(RECONNECT_MAX_MS, this.reconnectMs * 2)
+		}
+		this.timers.reconnect = setTimeout(() => void this.#connectUnit(), Math.max(0, wait))
 		this.timers.reconnect.unref?.()
+	}
+
+	#standDownUntil(now = Date.now()) {
+		const entry = losses.get(this.host)
+		return entry && entry.until > now ? entry.until : null
+	}
+
+	#standDownMessage(until) {
+		const minutes = Math.round(this.timings.lossWindowMs / 60_000)
+		return (
+			`Standing down until ${new Date(until).toLocaleTimeString()}: the receiver dropped the session twice in ` +
+			`${minutes} minutes, so it is left alone rather than reconnected into another restart`
+		)
+	}
+
+	/** Record a lost session; returns when a stand-down ends, if this loss starts one. */
+	#recordLoss(now = Date.now()) {
+		const entry = losses.get(this.host) ?? { at: [], until: 0 }
+		entry.at = entry.at.filter((t) => now - t < this.timings.lossWindowMs)
+		entry.at.push(now)
+		if (entry.at.length >= 2) {
+			entry.until = now + this.timings.standDownMs
+			entry.at = []
+		}
+		losses.set(this.host, entry)
+		return entry.until > now ? entry.until : null
 	}
 
 	#unitLost(unit, err) {
@@ -281,6 +346,16 @@ export class AxientBackend {
 		clearInterval(this.timers.refresh)
 		this.timers.refresh = null
 		void unit.close().catch(() => {})
+		const until = this.#recordLoss()
+		if (until) {
+			// no session and no probing of the control port either, until the stand-down ends
+			this.log('warn', this.#standDownMessage(until))
+			clearTimeout(this.timers.commandRetry)
+			void this.#closeCommands()
+			this.ctx.status('connection_failure', this.#standDownMessage(until))
+			this.#scheduleReconnect(until - Date.now())
+			return
+		}
 		this.ctx.status('connection_failure', `Lost the session: ${err.message}`)
 		this.#scheduleReconnect()
 	}
@@ -317,6 +392,9 @@ export class AxientBackend {
 			switch (key) {
 				case 'name':
 					api.updateReceiver('DEVICE_ID', value)
+					break
+				case 'firmware':
+					api.updateReceiver('FW_VER', value)
 					break
 				case 'model':
 					api.updateReceiver('MODEL', value)
@@ -379,6 +457,9 @@ export class AxientBackend {
 			case 'antenna':
 				api.updateChannel(channel, 'ANTENNA_CONFIGURATION', value)
 				break
+			case 'talk':
+				api.updateTalkRouting(channel, value)
+				break
 			// the ACN transmitter bank stands in only while the control port is not giving these
 			case 'txModel':
 				if (!this.commandsLive) api.updateChannel(channel, 'TX_MODEL', value ?? 'UNKNOWN')
@@ -433,6 +514,7 @@ export class AxientBackend {
 		}
 		client.socket?.setKeepAlive(true, 10_000)
 		this.commands = client
+		this.commandRetryMs = null
 		client.on('rep', (rep) => this.#onReport(rep))
 		client.on('lost', (err) => {
 			if (this.closed || this.commands !== client) return
@@ -458,9 +540,11 @@ export class AxientBackend {
 	}
 
 	#retryCommands() {
-		if (this.closed) return
+		if (this.closed || this.#standDownUntil()) return
 		clearTimeout(this.timers.commandRetry)
-		this.timers.commandRetry = setTimeout(() => void this.#openCommands(), COMMAND_RETRY_MS)
+		// doubling up to a minute while the port keeps refusing, so the unit is not knocked on every 10 s
+		this.commandRetryMs = Math.min(COMMAND_RETRY_MAX_MS, (this.commandRetryMs ?? COMMAND_RETRY_MS / 2) * 2)
+		this.timers.commandRetry = setTimeout(() => void this.#openCommands(), this.commandRetryMs)
 		this.timers.commandRetry.unref?.()
 	}
 
@@ -477,7 +561,7 @@ export class AxientBackend {
 				return null
 			}
 		}
-		await tolerant(() => client.query(null, 'FW_VER'))
+		// the firmware version comes from the ACN session (DEV.FIRMWARE), so FW_VER is not asked here
 		// the channels the ANX4 can use now (some are eclipsed by FD-C or Quadversity)
 		if (this.licensed) await tolerant(() => client.query(null, 'AVAILABLE_CHANNELS'))
 		const channelProps = [
@@ -670,6 +754,23 @@ export class AxientBackend {
 		})
 	}
 
+	/**
+	 * Talk-switch routing: whether one output (XLR, TRS, AES3, Dante) carries the channel in one
+	 * switch position. `outputId` is the driver's id (`xlrNormal`, `dantePressed`, ...) and `choice`
+	 * is ON, OFF or TOGGLE. The eight routings share a byte, which the driver reads before changing
+	 * only the one bit; the result is read back from the unit.
+	 */
+	setTalkRouting(channel, outputId, choice) {
+		if (!TALK_OUTPUTS.some((o) => o.id === outputId)) return this.#refuse(`talk routing: unknown output ${outputId}`)
+		return this.#write(`talk routing ${outputId} ${choice}`, async (unit) => {
+			for (const c of this.#targets(channel)) {
+				const current = this.api.getChannel(c).talk?.[outputId]
+				const on = choice === 'TOGGLE' ? current !== true : choice === 'ON'
+				await unit.setTalkOutput(c, outputId, on)
+			}
+		})
+	}
+
 	/** Flash the unit's display, or one channel's, from the control port. */
 	identify(channel = null) {
 		return this.#cmd((client) => client.identify(channel == null ? null : Number(channel))).catch((err) =>
@@ -710,6 +811,11 @@ export class AxientBackend {
 			}
 		}).catch((err) => this.log('warn', `${prop}: ${err.message}`))
 	}
+}
+
+/** For tests: forget recorded session losses. */
+export function resetLosses() {
+	losses.clear()
 }
 
 /** For tests: forget the shared SLP browse. */

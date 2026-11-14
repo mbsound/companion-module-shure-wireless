@@ -2,8 +2,8 @@
 
 Everything under `src/driver/` is copied from
 [mbsound/soundbase-plugin-shure-axient-digital](https://github.com/mbsound/soundbase-plugin-shure-axient-digital)
-(formerly `soundbase-plugin-shure-ad4q`) at commit `680139ef8d51e98af6ff2d68d107f18cd80b38e6`
-(v0.2.1 and the repository rename). That repository's driver has been run against real AD4Q, AD4D and
+(formerly `soundbase-plugin-shure-ad4q`) at commit `2bb542bfc4727ea2a4932444d76d3b27bed174a4`
+(v0.2.3: no string-keyed requests to ANX4 firmware below 1.2). That repository's driver has been run against real AD4Q, AD4D and
 ANX4 units; this module uses it unchanged for those receivers so it inherits that testing.
 
 | Path | What it is |
@@ -34,3 +34,6 @@ files from upstream again and re-apply these. All other files are byte-identical
    out the 3 s timeout, for properties a model or firmware may not have.
 
 The two-digit `SAMPLE` channel fix this module first carried locally is upstream as of `5cca260`.
+
+The plugin's adapter is not vendored; `src/backends/axient.js` follows it, including v0.2.3's
+restart-loop breaker, the once-a-minute ANX4 refresh and the command-port retry backoff.

@@ -166,6 +166,7 @@ export default class WirelessApi {
 				naChanName: '', // (ULX|SLXplus) Dante Channel Name
 				txFwVer: '', // (ULX) Transmitter Firmware Version
 				antennaConfiguration: 'AUTOMATIC', // (ANX4) AB - CD - AUTOMATIC - QUADVERSITY
+				talk: null, // (AD/ANX4, ACN) talk-switch routing: { xlrNormal: true, ..., dantePressed: false }
 				txPhantomPower: 'Unknown', // (AD/ANX4: AD3/ADX3) Off - +12V - +48V - Unknown
 				txHighPassFilter: 'Unknown', // (AD/ANX4: AD3/ADX3) Off - 40 Hz - 80 Hz - 160 Hz - 240 Hz - Unknown
 			}
@@ -425,6 +426,36 @@ export default class WirelessApi {
 		}
 
 		this.instance.checkFeedbacks('audio_peak_clip', 'signal_quality')
+	}
+
+	/**
+	 * Talk-switch routing from the ACN session (AD4D/AD4Q/ANX4): for each output and switch
+	 * position, whether that output carries the channel.
+	 *
+	 * @param {number} id - the channel id
+	 * @param {Object<string, boolean>} routing - the driver's decodeTalk() result
+	 */
+	updateTalkRouting(id, routing) {
+		if (!routing) return
+		const channel = this.getChannel(id)
+		const prefix = 'ch_' + id + '_'
+		channel.talk = { ...routing }
+		// which outputs carry the channel in each switch position, e.g. "XLR, TRS, Dante" or "None"
+		const list = (position) =>
+			[
+				['xlr', 'XLR'],
+				['trs', 'TRS'],
+				['aes3', 'AES3'],
+				['dante', 'Dante'],
+			]
+				.filter(([output]) => routing[`${output}${position}`] === true)
+				.map(([, label]) => label)
+				.join(', ') || 'None'
+		this.instance.setVariableValues({
+			[`${prefix}talk_normal`]: list('Normal'),
+			[`${prefix}talk_pressed`]: list('Pressed'),
+		})
+		this.instance.checkFeedbacks('talk_routing')
 	}
 
 	/**

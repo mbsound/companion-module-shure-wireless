@@ -40,7 +40,10 @@ import {
   syncOptions,
   KEY,
   ANTENNA_SELECTIONS,
-  transmissionModeLabel,} from './properties.js';
+  transmissionModeLabel,
+  STRING_KEYS_FROM,
+  versionAtLeast,
+  decodeString,} from './properties.js';
 import {
   ANTENNAS,
   SCAN_OBJ,
@@ -180,6 +183,9 @@ export class Ad4qDevice extends EventEmitter {
     this.pending = new Map(); // addr -> [{ kind, resolve, reject, timer }]
     this.values = new Map(); // addr -> Buffer, the last value heard
     this.absent = new Set(); // addresses the unit has refused: not asked again
+    /** an ANX4's firmware string, and whether it takes string-keyed requests (see STRING_KEYS_FROM) */
+    this.firmware = null;
+    this.stringKeys = false;
     this.timeouts = 0;
     this.closed = false;
   }
@@ -215,8 +221,15 @@ export class Ad4qDevice extends EventEmitter {
     session.on('leaving', () => this.#lost(new Error('the unit ended the session')));
     this.session = session;
     await session.connect();
-    // an ANX4 has the channels it is licensed for: count them rather than trust a tag
-    if (this.licensed && !this.channelsGiven) this.channels = await this.countChannels();
+    if (this.licensed) {
+      // which ANX4 this is: string-keyed requests go only to firmware known to take them
+      const firmware = decodeString(await this.get(DEV.FIRMWARE).catch(() => null));
+      this.firmware = firmware ?? null;
+      this.stringKeys = versionAtLeast(firmware, STRING_KEYS_FROM);
+      if (!this.stringKeys) this.log('info', `${this.host}: ANX4 firmware ${firmware ?? 'unknown'} is below ${STRING_KEYS_FROM}; licence, antenna pairs and transmission mode are not read`);
+      // an ANX4 has the channels it is licensed for: count them rather than trust a tag
+      if (!this.channelsGiven) this.channels = await this.countChannels();
+    }
   }
 
   /**
@@ -226,6 +239,7 @@ export class Ad4qDevice extends EventEmitter {
    */
   async getKeys(keys, { timeoutMs = 1500 } = {}) {
     const results = new Map();
+    if (this.licensed && !this.stringKeys) return results; // never sent to firmware below the floor
     const wanted = new Set(keys);
     let done;
     const finished = new Promise((resolve) => { done = resolve; });
@@ -257,6 +271,7 @@ export class Ad4qDevice extends EventEmitter {
    * the unit holds it or `timeoutMs` passes. Returns the value it holds, or null with no answer.
    */
   async setKey(key, value, { timeoutMs = 2000 } = {}) {
+    if (this.licensed && !this.stringKeys) throw new Error(`this unit's firmware (${this.firmware ?? 'unknown'}) does not take this setting over the network; ${STRING_KEYS_FROM} or later does`);
     await this.session.send(strBatch(DMP.SET, [{ key, value }]), { commit: true });
     const until = Date.now() + timeoutMs;
     let held = null;
@@ -300,9 +315,17 @@ export class Ad4qDevice extends EventEmitter {
       const n = licence.readUInt16BE(0);
       if (n >= 1 && n <= MAX_CHANNELS) return n;
     }
-    const got = await this.getMany(Array.from({ length: MAX_CHANNELS }, (_, i) => chanAddr(i + 1, CH.NAME)));
+    // one name at a time, up to the first the unit refuses: no batch, so no batched-refusal quirk
     let n = 0;
-    while (n < MAX_CHANNELS && got.has(chanAddr(n + 1, CH.NAME))) n += 1;
+    while (n < MAX_CHANNELS) {
+      try {
+        await this.get(chanAddr(n + 1, CH.NAME));
+        n += 1;
+      } catch (err) {
+        if (err instanceof ReadRefused) break;
+        throw err;
+      }
+    }
     return Math.max(1, n);
   }
 

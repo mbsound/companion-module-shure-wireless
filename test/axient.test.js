@@ -165,3 +165,56 @@ test('AD4Q: command-strings actions (ShowLink slots, flash) go out on the contro
 	assert.equal(fake.commands.gets.length, gets)
 	assert.ok(inst.logs.some((l) => /not sent \(not a SET\)/.test(l)))
 })
+
+test('AD4Q: talk-switch routing is read, set per output and position, toggled, and read back', async (t) => {
+	const { inst, fake, backend } = await axientOnFake(t)
+	await until(() => inst.variables.ch_1_talk_normal, 6000, 'talk routing')
+	// a fresh unit routes every output in both positions
+	assert.equal(inst.variables.ch_1_talk_normal, 'XLR, TRS, AES3, Dante')
+	assert.equal(inst.variables.ch_1_talk_pressed, 'XLR, TRS, AES3, Dante')
+	await backend.setTalkRouting(1, 'dantePressed', 'OFF')
+	// one bit changes, the others are left as they were (a set bit means that routing is off)
+	assert.equal(held(fake, 1, CH.TALK_ROUTING)[0], 0b1000_0000)
+	await until(() => inst.variables.ch_1_talk_pressed === 'XLR, TRS, AES3', 2000, 'read-back')
+	assert.equal(inst.api.getChannel(1).talk.dantePressed, false)
+	await backend.setTalkRouting(1, 'dantePressed', 'TOGGLE')
+	assert.equal(held(fake, 1, CH.TALK_ROUTING)[0], 0)
+	await backend.setTalkRouting(0, 'xlrNormal', 'OFF')
+	for (let c = 1; c <= 4; c += 1) assert.equal(held(fake, c, CH.TALK_ROUTING)[0], 0b0000_0001, `channel ${c}`)
+	await until(() => inst.variables.ch_4_talk_normal === 'TRS, AES3, Dante', 2000, 'all channels')
+})
+
+test('AD4Q: the firmware version comes from the ACN session', async (t) => {
+	const { inst } = await axientOnFake(t, { firmware: '1.5.4.0' })
+	await until(() => inst.variables.firmware_version, 6000, 'firmware')
+	assert.equal(inst.variables.firmware_version, '1.5.4.0')
+})
+
+test('ANX4 below firmware 1.2: no string-keyed requests; licence counted from names, antenna not set', async (t) => {
+	const ctx = await axientOnFake(t, { model: 'ANX4', channels: 16, firmware: '1.1.7.0' })
+	const { inst, fake, backend } = ctx
+	await until(() => ctx.licensedChannels === 16, 8000, 'licence counted from channel names')
+	await until(() => inst.variables.ch_16_name === 'Ch.16', 8000, 'channel 16')
+	assert.equal(backend.unit.stringKeys, false)
+	assert.equal(inst.variables.transmission_mode, undefined)
+	assert.equal(inst.variables.ch_5_antenna_configuration, undefined)
+	const writes = fake.writes.length
+	await backend.setAntenna(5, 'CD')
+	assert.equal(fake.writes.length, writes, 'an antenna write went to pre-1.2 firmware')
+	assert.ok(inst.logs.some((l) => /does not take this setting over the network/.test(l)))
+})
+
+test('a unit that drops the session twice within the window is stood down, then reconnected', async (t) => {
+	const { inst, backend } = await axientOnFake(t, { timings: { lossWindowMs: 60_000, standDownMs: 2500 } })
+	await until(() => lastStatus(inst) === 'ok', 6000, 'connected')
+	backend.unit.emit('lost', new Error('the unit ended the session'))
+	// the first loss reconnects after the normal backoff
+	await until(() => lastStatus(inst) === 'ok' && backend.unit?.connected, 8000, 'reconnected after one loss')
+	backend.unit.emit('lost', new Error('the unit ended the session'))
+	assert.equal(lastStatus(inst), 'connection_failure')
+	assert.match(inst.statuses.at(-1).message, /Standing down/)
+	await delay(1500)
+	assert.equal(backend.unit, null, 'reconnected during the stand-down')
+	assert.equal(backend.commands, null, 'the control port stayed open during the stand-down')
+	await until(() => lastStatus(inst) === 'ok' && backend.unit?.connected, 8000, 'back after the stand-down')
+})

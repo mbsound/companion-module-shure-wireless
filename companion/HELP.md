@@ -17,6 +17,10 @@ Transmitter details, ShowLink slots, the alarm flags and the quality meter come 
 
 Settings that restart the receiver or unpair transmitters (High Density / transmission mode, band, encryption, Quadversity) are shown but cannot be changed from Companion. On the ANX4 the antenna pair (AB or CD) can be set; Automatic and Quadversity cannot be set over the network.
 
+**Talk switch routing** (which of XLR, TRS, AES3 and Dante carry each channel with the talk switch released or pressed) is set with the "Set talk switch routing" action and shown by the "Talk Switch Routing" feedback and the talk routing variables.
+
+On ANX4 firmware below 1.2 the antenna pairs and transmission mode are not read or set. If a receiver drops the session twice within ten minutes, the module leaves it alone for fifteen minutes before reconnecting, and the connection status says so.
+
 ### Available actions
 
 | Title                                                         | Model Support       |

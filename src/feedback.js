@@ -612,6 +612,21 @@ export function updateFeedbacks() {
 			},
 		}
 
+		feedbacks['talk_routing'] = {
+			type: 'boolean',
+			name: 'Talk Switch Routing',
+			description:
+				'If the output carries the channel in the selected talk switch position, change the color of the button.',
+			defaultStyle: {
+				color: combineRgb(0, 0, 0),
+				bgcolor: combineRgb(0, 255, 0),
+			},
+			options: [this.CHANNELS_FIELD, Fields.TalkPosition, Fields.TalkOutput],
+			callback: ({ options }) => {
+				return this.api.getChannel(parseInt(options.channel)).talk?.[`${options.output}${options.position}`] === true
+			},
+		}
+
 		feedbacks['antenna_configuration'] = {
 			type: 'boolean',
 			name: 'Antenna Configuration',

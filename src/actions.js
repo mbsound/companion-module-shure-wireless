@@ -379,6 +379,18 @@ export function updateActions() {
 		// for them. They are still tracked and available as variables and feedbacks.
 	}
 
+	if (this.model.family == 'ad') {
+		actions['set_talk_routing'] = {
+			name: 'Set talk switch routing',
+			description:
+				'Whether an output (XLR, TRS, AES3, Dante) carries the channel with the talk switch released or pressed. Read back from the receiver.',
+			options: [this.CHANNELS_A_FIELD, Fields.TalkPosition, Fields.TalkOutput, Fields.TalkState],
+			callback: async ({ options }) => {
+				await this.backend?.setTalkRouting(options.channel, `${options.output}${options.position}`, options.state)
+			},
+		}
+	}
+
 	if (this.model.id == 'anx4') {
 		// the 2202 manual has ANTENNA_CONFIGURATION as GET only; the ACN write is confirmed on hardware
 		actions['set_antenna_configuration'] = {

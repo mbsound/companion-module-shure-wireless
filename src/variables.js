@@ -131,6 +131,8 @@ export function updateVariables() {
 			variables.push({ variableId: `${prefix}_tx_phantom_power`, name: `Channel ${i} Transmitter Phantom Power` })
 			variables.push({ variableId: `${prefix}_tx_hpf`, name: `Channel ${i} Transmitter High Pass Filter` })
 			variables.push({ variableId: `${prefix}_antenna_configuration`, name: `Channel ${i} Antenna Configuration` })
+			variables.push({ variableId: `${prefix}_talk_normal`, name: `Channel ${i} Outputs, Talk Switch Released` })
+			variables.push({ variableId: `${prefix}_talk_pressed`, name: `Channel ${i} Outputs, Talk Switch Pressed` })
 		}
 
 		if (this.model.family != 'slx' && this.model.family != 'slxplus') {

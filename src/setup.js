@@ -148,6 +148,21 @@ export const Choices = {
 		{ id: '160', label: '160 Hz' },
 		{ id: '240', label: '240 Hz' },
 	],
+	TalkOutput: [
+		{ id: 'xlr', label: 'XLR' },
+		{ id: 'trs', label: 'TRS' },
+		{ id: 'aes3', label: 'AES3' },
+		{ id: 'dante', label: 'Dante' },
+	],
+	TalkPosition: [
+		{ id: 'Normal', label: 'Talk switch released (normal)' },
+		{ id: 'Pressed', label: 'Talk switch pressed' },
+	],
+	TalkState: [
+		{ id: 'ON', label: 'On' },
+		{ id: 'OFF', label: 'Off' },
+		{ id: 'TOGGLE', label: 'Toggle' },
+	],
 	AntennaConfiguration: [
 		{ id: 'AUTOMATIC', label: 'Automatic' },
 		{ id: 'AB', label: 'Antenna AB' },
@@ -436,6 +451,27 @@ export const Fields = {
 		id: 'value',
 		default: 'AUTOMATIC',
 		choices: Choices.AntennaConfiguration,
+	},
+	TalkOutput: {
+		type: 'dropdown',
+		label: 'Output',
+		id: 'output',
+		default: 'xlr',
+		choices: Choices.TalkOutput,
+	},
+	TalkPosition: {
+		type: 'dropdown',
+		label: 'Switch position',
+		id: 'position',
+		default: 'Normal',
+		choices: Choices.TalkPosition,
+	},
+	TalkState: {
+		type: 'dropdown',
+		label: 'Routing',
+		id: 'state',
+		default: 'ON',
+		choices: Choices.TalkState,
 	},
 	AntennaPair: {
 		type: 'dropdown',

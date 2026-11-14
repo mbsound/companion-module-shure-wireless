@@ -2,7 +2,7 @@
 
 import WirelessApi from '../src/internalAPI.js'
 import { FakeAd4q } from '../src/driver/fake/fake-ad4q.js'
-import { AxientBackend } from '../src/backends/axient.js'
+import { AxientBackend, resetLosses } from '../src/backends/axient.js'
 import { Models } from '../src/setup.js'
 
 export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -43,8 +43,13 @@ export function fakeInstance(modelId) {
  * A simulated unit and an AxientBackend connected to it. `commandPort: false` points the
  * control port at nothing, as for a unit with command strings turned off.
  */
-export async function axientOnFake(t, { model = 'AD4Q', modelId, channels, commandPort = true, metering = {} } = {}) {
-	const fake = new FakeAd4q({ model, channels })
+export async function axientOnFake(
+	t,
+	{ model = 'AD4Q', modelId, channels, firmware, commandPort = true, metering = {}, timings } = {}
+) {
+	// session losses are remembered per host, and every simulator is on 127.0.0.1
+	resetLosses()
+	const fake = new FakeAd4q({ model, channels, ...(firmware ? { firmware } : {}) })
 	await fake.listen()
 	// what arrives at the control port, chunk by chunk: an unpaced client sends several frames per chunk
 	const chunks = []
@@ -68,6 +73,7 @@ export async function axientOnFake(t, { model = 'AD4Q', modelId, channels, comma
 		checkFeedbacks: (...ids) => inst.checkFeedbacks(...ids),
 		saveCid: (cid) => (savedCid = cid),
 		channelCount: (n) => (licensedChannels = n),
+		timings,
 		driver: {
 			port: fake.controlPort,
 			cid: fake.cid.toString('hex'),
