@@ -8,3 +8,9 @@ DEBUG-PACKAGED
 .yarn/install-state.gz
 .DS_Store
 */.DS_Store
+
+# Built module packages are attached to GitHub Releases, not committed
+*.tgz
+
+# Vendor manuals (e.g. Shure command string PDFs) stay local; link to the published copy instead
+*.pdf
