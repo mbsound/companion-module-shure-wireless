@@ -13,6 +13,8 @@ This module will connect to the Shure receivers below to provide feedback status
 
 These receivers are controlled over ACN, the protocol Wireless Workbench uses, so **Companion must be on the receiver's network segment** (discovery on UDP 8427; the session uses UDP 57383). Every change is read back from the receiver.
 
+If more than one of this computer's network adapters is on the receiver's subnet (Wi-Fi and wired on a wide subnet such as 255.252.0.0, say), set **Network adapter** in the connection to the one that reaches the receiver, by name (`en0`, `Ethernet`) or by its IPv4 address. Blank chooses by subnet.
+
 Transmitter details, ShowLink slots, the alarm flags and the quality meter come from the command strings port (2202), which must be enabled on the receiver. Without it everything else still works, and the connection status shows a warning saying what is missing.
 
 Settings that restart the receiver or unpair transmitters (High Density / transmission mode, band, encryption, Quadversity) are shown but cannot be changed from Companion. On the ANX4 the antenna pair (AB or CD) can be set; Automatic and Quadversity cannot be set over the network.

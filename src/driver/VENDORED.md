@@ -2,8 +2,9 @@
 
 Everything under `src/driver/` is copied from
 [mbsound/soundbase-plugin-shure-axient-digital](https://github.com/mbsound/soundbase-plugin-shure-axient-digital)
-(formerly `soundbase-plugin-shure-ad4q`) at commit `2bb542bfc4727ea2a4932444d76d3b27bed174a4`
-(v0.2.3: no string-keyed requests to ANX4 firmware below 1.2). That repository's driver has been run against real AD4Q, AD4D and
+(formerly `soundbase-plugin-shure-ad4q`) at commit `0ec16bf895fe59677f9bde97acda34fcb3d4cfdb`
+(v0.2.4: multicast discovery and session on a chosen network adapter, reconnect
+and loss fixes from a deep review). That repository's driver has been run against real AD4Q, AD4D and
 ANX4 units; this module uses it unchanged for those receivers so it inherits that testing.
 
 | Path | What it is |
@@ -36,4 +37,9 @@ files from upstream again and re-apply these. All other files are byte-identical
 The two-digit `SAMPLE` channel fix this module first carried locally is upstream as of `5cca260`.
 
 The plugin's adapter is not vendored; `src/backends/axient.js` follows it, including v0.2.3's
-restart-loop breaker, the once-a-minute ANX4 refresh and the command-port retry backoff.
+restart-loop breaker, the once-a-minute ANX4 refresh and the command-port retry backoff, and from
+v0.2.4: the 5 s loss debounce, names reduced to ASCII rather than refused, the remembered component
+id falling back to the unit advertising at the address, a stale read round ignored after a reconnect,
+and the "Network adapter" setting for the session (the shared SLP browse still uses every adapter,
+since several connections share it). The meter rates are still reset one at a time on close, as
+every exchange on the control port is, rather than in v0.2.4's parallel burst.

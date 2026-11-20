@@ -142,7 +142,7 @@ export class Ad4qDevice extends EventEmitter {
    * @param {{
    *   host: string, port?: number, cid?: string|null,
    *   browser?: { find(ip: string, ms: number): Promise<object|null> },
-   *   localIp?: string, advert?: boolean, timings?: object,
+   *   localIp?: string, advert?: boolean, timings?: object, preferredInterface?: object|null,
    *   requestTimeoutMs?: number, scanStallMs?: number, log?: (level: string, message: string) => void,
    * }} options
    */
@@ -160,8 +160,11 @@ export class Ad4qDevice extends EventEmitter {
     log = () => {},
     scanStallMs = 20_000,
     licensed = false,
+    preferredInterface = null,
   }) {
     super();
+    /** the adapter the plugin is set to use, for a unit no interface's subnet holds (see `localInterfaceFor`) */
+    this.preferredInterface = preferredInterface;
     // an AD4D has two channels; asking it for four leaves reads that are never answered
     this.channels = channels ?? CHANNEL_COUNT;
     this.channelsGiven = channels != null;
@@ -188,23 +191,27 @@ export class Ad4qDevice extends EventEmitter {
     this.stringKeys = false;
     this.timeouts = 0;
     this.closed = false;
+    /** set once the unit is gone (it said goodbye, or stopped answering): nothing more is sent to it */
+    this.lost = false;
+    /** an ANX4's licensed channel count as the unit reports it, when it could be read */
+    this.licensedChannels = null;
   }
 
   get connected() {
-    return !!this.session?.ready && !this.closed;
+    return !!this.session?.ready && !this.closed && !this.lost;
   }
 
-  async connect() {
-    if (!this.cid) {
-      const unit = await this.browser?.find(this.host, 6000);
-      if (!unit) throw new Error(`no AD4Q is advertising at ${this.host}`);
-      this.cid = unit.cid;
-      this.port = unit.port;
-      // the advert says which receiver this is, unless the caller already did
-      if (!this.channelsGiven) this.channels = channelsFor(modelOf(unit.fctn));
-      this.licensed ||= isLicensedModel(modelOf(unit.fctn));
-    }
-    const localIp = this.localIp ?? localInterfaceFor(this.host)?.address;
+  /** Take the unit's identity from its advert: the component id, the port, and which receiver it is. */
+  #fromAdvert(unit) {
+    this.cid = unit.cid;
+    this.port = unit.port;
+    // the advert says which receiver this is, unless the caller already did
+    if (!this.channelsGiven) this.channels = channelsFor(modelOf(unit.fctn));
+    this.licensed ||= isLicensedModel(modelOf(unit.fctn));
+  }
+
+  async #join() {
+    const localIp = this.localIp ?? localInterfaceFor(this.host, this.preferredInterface)?.address;
     if (!localIp) throw new Error('this computer has no network interface that can reach the unit');
     const session = new AcnSession({
       host: this.host,
@@ -220,15 +227,51 @@ export class Ad4qDevice extends EventEmitter {
     session.on('error', (err) => this.#lost(err));
     session.on('leaving', () => this.#lost(new Error('the unit ended the session')));
     this.session = session;
-    await session.connect();
+    try {
+      await session.connect();
+    } catch (err) {
+      // a session that never opened has nothing more to say to this device
+      session.removeAllListeners('dmp').removeAllListeners('error').removeAllListeners('leaving');
+      if (this.session === session) this.session = null;
+      await session.close().catch(() => {});
+      throw err;
+    }
+  }
+
+  async connect() {
+    if (!this.cid) {
+      const unit = await this.browser?.find(this.host, 6000);
+      if (!unit) throw new Error(`no AD4Q is advertising at ${this.host}`);
+      this.#fromAdvert(unit);
+      await this.#join();
+    } else {
+      // a component id the caller knew (from discovery, kept in the project) opens the session without
+      // waiting for an advert; if that unit does not answer and the advert names another frame at this
+      // address, the frame that is there now is joined instead
+      try {
+        await this.#join();
+      } catch (err) {
+        const unit = await this.browser?.find(this.host, 6000);
+        if (!unit || unit.cid === this.cid || this.closed) throw err;
+        this.log('info', `${this.host}: the unit advertising here is not the one the project remembers (${unit.cidText}); joining it`);
+        this.#fromAdvert(unit);
+        await this.#join();
+      }
+    }
     if (this.licensed) {
       // which ANX4 this is: string-keyed requests go only to firmware known to take them
       const firmware = decodeString(await this.get(DEV.FIRMWARE).catch(() => null));
       this.firmware = firmware ?? null;
       this.stringKeys = versionAtLeast(firmware, STRING_KEYS_FROM);
       if (!this.stringKeys) this.log('info', `${this.host}: ANX4 firmware ${firmware ?? 'unknown'} is below ${STRING_KEYS_FROM}; licence, antenna pairs and transmission mode are not read`);
-      // an ANX4 has the channels it is licensed for: count them rather than trust a tag
+      // an ANX4 has the channels it is licensed for: count them rather than trust a tag. When the caller
+      // fixed the count (the product it was added as), the licence is still read where it is one cheap
+      // request, so a licence that has changed since can be reported
       if (!this.channelsGiven) this.channels = await this.countChannels();
+      else if (this.stringKeys) this.licensedChannels = await this.licensedChannelCount();
+      if (this.licensedChannels != null && this.licensedChannels !== this.channels) {
+        this.log('warn', `${this.host}: the ANX4 is licensed for ${this.licensedChannels} channels but was added with ${this.channels}; remove and add it again to pick up the new licence`);
+      }
     }
   }
 
@@ -310,11 +353,8 @@ export class Ad4qDevice extends EventEmitter {
    * licensed channels and GET_FAILs the rest). At least one is assumed.
    */
   async countChannels() {
-    const licence = (await this.getKeys([KEY.LICENSED_CHANNELS], { timeoutMs: 1000 })).get(KEY.LICENSED_CHANNELS);
-    if (licence && licence.length === 2) {
-      const n = licence.readUInt16BE(0);
-      if (n >= 1 && n <= MAX_CHANNELS) return n;
-    }
+    const licensed = await this.licensedChannelCount();
+    if (licensed != null) return licensed;
     // one name at a time, up to the first the unit refuses: no batch, so no batched-refusal quirk
     let n = 0;
     while (n < MAX_CHANNELS) {
@@ -329,8 +369,23 @@ export class Ad4qDevice extends EventEmitter {
     return Math.max(1, n);
   }
 
+  /** The channel count an ANX4's licence reports (`LICENSE:RF_CHANNEL_COUNT`), or null when it gave none. */
+  async licensedChannelCount() {
+    const licence = (await this.getKeys([KEY.LICENSED_CHANNELS], { timeoutMs: 1000 })).get(KEY.LICENSED_CHANNELS);
+    if (licence && licence.length === 2) {
+      const n = licence.readUInt16BE(0);
+      if (n >= 1 && n <= MAX_CHANNELS) {
+        this.licensedChannels = n;
+        return n;
+      }
+    }
+    return null;
+  }
+
   #lost(err) {
-    if (this.closed) return;
+    if (this.closed || this.lost) return;
+    // nothing more goes to a unit that is gone: the read rounds stop and `connected` says so
+    this.lost = true;
     this.emit('lost', err);
   }
 
@@ -459,17 +514,21 @@ export class Ad4qDevice extends EventEmitter {
     const results = new Map();
     const list = addrs.filter((a) => !this.absent.has(a));
     // round one: batched; a refusal the unit named is final, a silence is asked again
-    const waits = list.map((addr) => {
-      const answer = this.#await(addr, 'get', { quiet: true });
-      answer.promise.then(
-        (value) => results.set(addr, value),
-        (err) => { if (err instanceof ReadRefused) this.absent.add(addr); }
-      );
-      return answer;
-    });
+    const waits = [];
     try {
       for (let i = 0; i < list.length; i += BATCH) {
-        await this.session.send(dmpBatch(DMP.GET, list.slice(i, i + BATCH)));
+        const batch = list.slice(i, i + BATCH);
+        // Start each timeout when its batch is queued, not while earlier batches
+        // are still being paced. Large devices can take seconds to send a read.
+        for (const addr of batch) {
+          const answer = this.#await(addr, 'get', { quiet: true });
+          answer.promise.then(
+            (value) => results.set(addr, value),
+            (err) => { if (err instanceof ReadRefused) this.absent.add(addr); }
+          );
+          waits.push(answer);
+        }
+        await this.session.send(dmpBatch(DMP.GET, batch));
       }
     } catch (err) {
       for (const wait of waits) wait.cancel();
@@ -478,12 +537,12 @@ export class Ad4qDevice extends EventEmitter {
     }
     await Promise.all(waits.map((w) => w.promise.catch(() => {})));
     // later rounds: one per PDU, a bounded number in flight
-    for (let r = 0; r < retries && !this.closed; r += 1) {
+    for (let r = 0; r < retries && !this.closed && !this.lost; r += 1) {
       const again = list.filter((a) => !results.has(a) && !this.absent.has(a));
       if (!again.length) break;
       let next = 0;
       const worker = async () => {
-        while (next < again.length && !this.closed) {
+        while (next < again.length && !this.closed && !this.lost) {
           const addr = again[next++];
           try {
             results.set(addr, await this.get(addr));
@@ -542,7 +601,7 @@ export class Ad4qDevice extends EventEmitter {
     const addrs = [
       ...this.#props(DEVICE_PROPS).map((p) => p.addr),
       ...Array.from({ length: this.channels }, (_, c) => [
-        ...[...this.#props(CHANNEL_PROPS), ...METER_PROPS].map((p) => chanAddr(c + 1, p.obj)),
+        ...[...this.#props(CHANNEL_PROPS).filter((p) => p.subscribe !== false), ...METER_PROPS].map((p) => chanAddr(c + 1, p.obj)),
         // the roster slots only fill briefly during an IR sync, so they are watched, not polled
         ...rosterAddrs(c + 1),
       ]).flat(),
@@ -742,10 +801,15 @@ export class Ad4qDevice extends EventEmitter {
     return decodeTalk(await this.get(addr))?.[outputId] ?? null;
   }
 
-  /** Clear one registered-transmitter slot (1 to 8), as an unlink does. */
+  /**
+   * Clear one registered-transmitter slot (1 to 8), as an unlink does. Resolves with what the slot
+   * holds afterwards: null once it is empty, or the `{ slot, serial }` the unit kept there.
+   */
   async unlinkSlot(channel, slot) {
     if (!Number.isInteger(slot) || slot < 1 || slot > 8) throw new RangeError('slot must be 1..8');
-    await this.set(rosterIdAddr(channel, slot), Buffer.alloc(16));
+    const addr = rosterIdAddr(channel, slot);
+    await this.set(addr, Buffer.alloc(16));
+    return this.#readBack(addr);
   }
 
   async #readBack(addr) {

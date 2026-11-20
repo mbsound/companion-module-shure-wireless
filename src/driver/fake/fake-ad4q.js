@@ -108,6 +108,12 @@ export class FakeAd4q {
     this.restarting = false;
     /** how many times the unit has restarted, for tests */
     this.restarts = 0;
+    /** for tests: this many of the next JOINs each make the unit restart again a moment later (a drop mid-rebuild) */
+    this.restartAgainOnJoin = 0;
+    /** for tests: JOINs that named another unit's component id, which a unit ignores */
+    this.ignoredJoins = 0;
+    /** for tests: while true the unit acknowledges what it is sent but answers no DMP request (a wedged unit) */
+    this.silent = false;
     // `poisoned`: a real unit ignores every later scan in a session once a scan key is unsubscribed
     this.scanState = { claimed: false, poisoned: false, config: new Map(), subscriptions: new Set(), status: SCAN_STATUS.IDLE, timer: null, owner: null };
     /** every scan the unit has run, `{ channel, antenna, startKhz, stopKhz }`, for tests */
@@ -349,6 +355,11 @@ export class FakeAd4q {
 
   /** A controller joins: its own session, beside any other controller's, as on a real unit. */
   #onJoin(controllerCid, body, rinfo) {
+    // a JOIN names the unit it is for: one for another component id is not this unit's to answer
+    if (!body.subarray(0, 16).equals(this.cid)) {
+      this.ignoredJoins += 1;
+      return;
+    }
     const chan = body.readUInt16BE(18);
     const relSeq = body.readUInt32BE(26) & 0xffff;
     const ctl = { cid: controllerCid, chan, rinfo, totalSeq: 1, relSeq: this.devChan, firstRel: null, declared: false, subscribed: new Set() };
@@ -357,6 +368,10 @@ export class FakeAd4q {
     this.#sendTo(ctl, buildJoinAccept(this.cid, controllerCid, chan, relSeq, this.devChan));
     // the reciprocal JOIN back to the controller
     this.#sendTo(ctl, buildJoin(this.cid, controllerCid, this.devChan));
+    if (this.restartAgainOnJoin > 0) {
+      this.restartAgainOnJoin -= 1;
+      this.restart({ afterMs: 30 });
+    }
   }
 
   #onWrapper(ctl, reliable, body) {
@@ -366,7 +381,7 @@ export class FakeAd4q {
       if (payload.length >= 7 && payload[0] === 0x70 && payload[2] === 0x09 && payload.readUInt32BE(3) === 2) {
         ctl.declared = true;
         this.#reliable(ctl, clientBlock(1, 1, 0, pduEncode(0x0a, null, u32(2))));
-      } else if (ctl.declared && payload.length >= 6) {
+      } else if (ctl.declared && payload.length >= 6 && !this.silent) {
         this.#onDmp(ctl, payload);
       }
     }
@@ -618,7 +633,13 @@ export class FakeAd4q {
 
   /** The unit restarts: it says goodbye, drops off the network for a while, then takes a fresh join with its settings kept. */
   #restart() {
+    this.restart();
+  }
+
+  /** As `#restart`, `afterMs` after now (a real unit goes about 18 s after the HD write; the fake 150 ms). */
+  restart({ afterMs = 150 } = {}) {
     const t = setTimeout(() => {
+      if (this.restarting) return;
       for (const ctl of this.controllers.values()) this.#sendTo(ctl, buildLeaving(this.cid, ctl.cid, this.devChan));
       this.restarting = true;
       this.restarts += 1;
@@ -629,7 +650,7 @@ export class FakeAd4q {
       }, this.restartMs);
       back.unref?.();
       this.timers.push(back);
-    }, 150);
+    }, afterMs);
     t.unref?.();
     this.timers.push(t);
   }
