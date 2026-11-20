@@ -317,6 +317,32 @@ ANX4 expands the supported transmitter family to include the Shure **AD3** (stan
 
 ---
 
+## Installing and Releasing
+
+Built packages are not committed to this repository. Download the `shure-wireless-<version>.tgz`
+for the version you want from the [Releases page](https://github.com/mbsound/companion-module-shure-wireless/releases)
+and import it in Companion (Settings > Modules > Import module package).
+
+To build a package yourself, run `yarn install` and then `yarn package`. The `.tgz` is written to
+the repository root and is ignored by git.
+
+To publish a release, set `version` in `package.json`, commit, then push a matching tag:
+
+```sh
+git tag v3.0.0-experimental.3
+git push origin v3.0.0-experimental.3
+```
+
+The Release workflow checks that the tag matches `package.json`, runs the tests, builds the package
+and attaches it to a new GitHub release. Versions with a `-` suffix (such as `-experimental.3`) are
+marked as pre-releases.
+
+The ANX4 and AD4 command string manuals are published by Shure at
+[pubs.shure.com](https://pubs.shure.com/command-strings/ANX4/en-US). Keep local copies out of the
+repository (`*.pdf` is ignored).
+
+---
+
 ## Configuration Settings
 
 - **Target IP**: The IP address of the Shure receiver.
