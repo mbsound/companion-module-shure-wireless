@@ -4,7 +4,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { CH, KEY, chanAddr } from '../src/driver/ad4q/properties.js'
-import { axientOnFake, delay, lastStatus, until } from './helpers.js'
+import { createSocket } from 'node:dgram'
+import { FakeAd4q } from '../src/driver/fake/fake-ad4q.js'
+import { SlpBrowser } from '../src/driver/acn/slp.js'
+import { isReceiverAdvert } from '../src/driver/ad4q/properties.js'
+import { AxientBackend } from '../src/backends/axient.js'
+import { axientOnFake, delay, fakeInstance, lastStatus, until } from './helpers.js'
 
 const held = (fake, channel, obj) => fake.store.get(chanAddr(channel, obj)).value
 
@@ -205,7 +210,9 @@ test('ANX4 below firmware 1.2: no string-keyed requests; licence counted from na
 })
 
 test('a unit that drops the session twice within the window is stood down, then reconnected', async (t) => {
-	const { inst, backend } = await axientOnFake(t, { timings: { lossWindowMs: 60_000, standDownMs: 2500 } })
+	const { inst, backend } = await axientOnFake(t, {
+		timings: { lossWindowMs: 60_000, standDownMs: 2500, lossDebounceMs: 0 },
+	})
 	await until(() => lastStatus(inst) === 'ok', 6000, 'connected')
 	backend.unit.emit('lost', new Error('the unit ended the session'))
 	// the first loss reconnects after the normal backoff
@@ -269,4 +276,69 @@ test('AD4Q: the tone feedbacks follow the unit', async (t) => {
 	assert.equal(fb('tone_generator', { channel: '2' }), true)
 	assert.equal(fb('tone_level', { channel: '2', level: '-30' }), true)
 	assert.equal(fb('tone_level', { channel: '2', level: 'OFF' }), false)
+})
+
+test('two losses within a few seconds are one event, not a stand-down', async (t) => {
+	const { inst, backend } = await axientOnFake(t, { timings: { lossWindowMs: 60_000, standDownMs: 60_000 } })
+	await until(() => lastStatus(inst) === 'ok', 6000, 'connected')
+	backend.unit.emit('lost', new Error('the unit ended the session'))
+	await until(() => lastStatus(inst) === 'ok' && backend.unit?.connected, 8000, 'reconnected after one loss')
+	// the reconnect took the 2 s backoff; a second drop inside the 5 s debounce counts with the first
+	backend.unit.emit('lost', new Error('the unit stopped answering'))
+	assert.doesNotMatch(inst.statuses.at(-1).message ?? '', /Standing down/)
+	await until(() => lastStatus(inst) === 'ok' && backend.unit?.connected, 8000, 'reconnected after the second')
+})
+
+test('AD4Q: names lose their accents and typographic punctuation rather than being refused', async (t) => {
+	const { inst, fake, backend } = await axientOnFake(t)
+	await until(() => inst.variables.ch_1_name, 6000, 'names')
+	await backend.setChannelName(1, 'Zoë’s Mic')
+	await until(() => inst.variables.ch_1_name === "Zoe's Mi", 2000, 'channel name')
+	await backend.setDeviceName('Bühne – Left')
+	await until(() => inst.api.getReceiver().deviceId === 'Buhne - Left', 2000, 'device name')
+	assert.ok(fake.writes.length >= 2)
+})
+
+const freeUdpPort = () =>
+	new Promise((resolve) => {
+		const s = createSocket('udp4')
+		s.bind(0, '127.0.0.1', () => {
+			const { port } = s.address()
+			s.close(() => resolve(port))
+		})
+	})
+
+test('a stored component id the unit no longer answers to falls back to the unit advertising there', async (t) => {
+	const slpPort = await freeUdpPort()
+	const fake = new FakeAd4q({ slpPort })
+	await fake.listen()
+	const browser = new SlpBrowser({ port: slpPort, multicast: false, filter: isReceiverAdvert })
+	browser.setTargets(['127.0.0.1'])
+	const inst = fakeInstance('ad4q')
+	let savedCid
+	const backend = new AxientBackend({
+		api: inst.api,
+		model: inst.model,
+		config: { host: '127.0.0.1', port: fake.commandPort, acnCid: 'ab'.repeat(16), meteringOn: false },
+		log: (level, message) => inst.logs.push(`[${level}] ${message}`),
+		status: (status, message) => inst.statuses.push({ status, message }),
+		checkFeedbacks: () => {},
+		saveCid: (cid) => (savedCid = cid),
+		driver: {
+			browser,
+			localIp: '127.0.0.1',
+			advert: false,
+			timings: { sendGapMs: 2, connectTimeoutMs: 1000 },
+			requestTimeoutMs: 800,
+		},
+	})
+	t.after(async () => {
+		await backend.stop()
+		browser.stop()
+		await fake.stop()
+	})
+	backend.start()
+	await until(() => backend.unit?.connected, 10_000, 'joined the advertised unit')
+	assert.equal(savedCid, fake.cid.toString('hex'))
+	assert.ok(inst.logs.some((l) => /not the one the project remembers/.test(l)))
 })

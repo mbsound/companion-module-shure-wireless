@@ -125,9 +125,17 @@ export class AcnSession extends EventEmitter {
     socket.on('error', (err) => this.#fail(err));
     socket.on('message', (data, rinfo) => this.#onDatagram(data, rinfo));
     await new Promise((resolve, reject) => {
-      socket.once('error', reject);
-      socket.bind({ port: 0, address: '0.0.0.0' }, resolve);
+      const onClose = () => reject(new Error('the session closed while binding'));
+      const onError = (err) => { socket.off('close', onClose); reject(err); };
+      socket.once('error', onError);
+      socket.once('close', onClose);
+      socket.bind({ port: 0, address: '0.0.0.0' }, () => {
+        socket.off('error', onError);
+        socket.off('close', onClose);
+        resolve();
+      });
     });
+    if (this.closed) throw new Error('session closed before it opened');
     const srcPort = socket.address().port;
 
     if (this.advertise) {

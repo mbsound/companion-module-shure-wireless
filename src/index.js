@@ -83,7 +83,8 @@ class ShureWirelessInstance extends InstanceBase {
 		const reconnect =
 			this.config.host !== config.host ||
 			String(this.config.port) !== String(config.port) ||
-			this.config.modelID !== config.modelID
+			this.config.modelID !== config.modelID ||
+			String(this.config.networkInterface ?? '').trim() !== String(config.networkInterface ?? '').trim()
 		const metering =
 			this.config.meteringOn !== config.meteringOn ||
 			Number(this.config.meteringInterval) !== Number(config.meteringInterval)
@@ -333,6 +334,18 @@ class ShureWirelessInstance extends InstanceBase {
 					'These receivers are controlled over ACN, the protocol Wireless Workbench uses, so Companion must be on the ' +
 					"receiver's network segment (discovery on UDP 8427). Transmitter, ShowLink and quality details come from " +
 					'the command strings port, which must be enabled on the receiver; without it everything else still works.',
+				isVisible: (options) => ['ad4d', 'ad4q', 'anx4'].includes(options.modelID),
+			},
+			{
+				type: 'textinput',
+				id: 'networkInterface',
+				label: 'Network adapter (optional)',
+				tooltip:
+					'The adapter to reach the receiver through, by name (en0, Ethernet) or by its IPv4 address. Use it when ' +
+					"more than one of this computer's adapters is on the receiver's subnet, such as Wi-Fi and wired on a wide " +
+					'subnet. Blank chooses by subnet.',
+				width: 6,
+				default: '',
 				isVisible: (options) => ['ad4d', 'ad4q', 'anx4'].includes(options.modelID),
 			},
 			{

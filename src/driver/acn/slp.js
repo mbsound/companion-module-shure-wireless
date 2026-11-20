@@ -150,8 +150,13 @@ export class ControllerAdvert {
     socket.on('error', (err) => this.log('warn', `SLP advert socket: ${err.message}`));
     await new Promise((resolve) => {
       socket.once('error', resolve);
+      socket.once('close', resolve);
       socket.bind({ port: SLP_PORT, address: '0.0.0.0' }, resolve);
     });
+    if (this.socket !== socket) {
+      try { socket.close(); } catch {}
+      return;
+    }
     try {
       socket.setMulticastTTL(4);
       socket.setMulticastInterface(this.localIp);
@@ -160,9 +165,11 @@ export class ControllerAdvert {
       this.log('warn', `SLP multicast setup: ${err.message}`);
     }
     for (let i = 0; i < 3; i += 1) {
+      if (this.socket !== socket) return;
       this.#send();
       await new Promise((r) => setTimeout(r, 120));
     }
+    if (this.socket !== socket) return;
     this.timer = setInterval(() => this.#send(), 4000);
     this.timer.unref?.();
   }
@@ -190,11 +197,15 @@ export class ControllerAdvert {
 /**
  * Listens for devices' adverts and remembers when each was last heard. Cheap
  * enough to leave running; `stop()` releases the socket.
+ *
+ * `interfaces` is the list of local IPv4 addresses the multicast goes out on
+ * and is listened for; null means every interface of the computer. A list
+ * keeps the solicits off networks that have no units on them.
  */
 export class SlpBrowser extends EventEmitter {
   /**
    * @param {{
-   *   targets?: string[], multicast?: boolean, port?: number,
+   *   targets?: string[], multicast?: boolean, port?: number, interfaces?: string[]|null,
    *   filter?: (unit: object) => boolean, listedMs?: number, solicitMs?: number,
    *   log?: (level: string, message: string) => void,
    * }} options
@@ -203,6 +214,7 @@ export class SlpBrowser extends EventEmitter {
     targets = [],
     multicast = true,
     port = SLP_PORT,
+    interfaces = null,
     filter = () => true,
     listedMs = 30_000,
     solicitMs = 5_000,
@@ -211,6 +223,7 @@ export class SlpBrowser extends EventEmitter {
     super();
     this.targets = targets;
     this.multicast = multicast;
+    this.interfaces = interfaces;
     this.port = port;
     this.filter = filter;
     this.listedMs = listedMs;
@@ -224,6 +237,23 @@ export class SlpBrowser extends EventEmitter {
 
   setTargets(targets) {
     this.targets = targets;
+  }
+
+  /** Change the adapters the browse uses; a running browse restarts on the new ones. */
+  setInterfaces(interfaces) {
+    const same = (a, b) => (a === null && b === null) || (!!a && !!b && a.length === b.length && a.every((x, i) => x === b[i]));
+    if (same(this.interfaces, interfaces)) return;
+    const running = !!(this.socket || this.starting);
+    this.interfaces = interfaces;
+    if (running) {
+      this.stop();
+      void this.start();
+    }
+  }
+
+  /** The local addresses the multicast goes out on and is listened for. */
+  #addresses() {
+    return this.interfaces ?? localAddresses();
   }
 
   start() {
@@ -241,8 +271,13 @@ export class SlpBrowser extends EventEmitter {
     socket.on('message', (data, rinfo) => this.#heard(data, rinfo));
     const bound = await new Promise((resolve) => {
       socket.once('error', () => resolve(false));
+      socket.once('close', () => resolve(false));
       socket.bind({ port: this.port, address: '0.0.0.0' }, () => resolve(true));
     });
+    if (this.socket !== socket) {
+      try { socket.close(); } catch {}
+      return;
+    }
     if (!bound) {
       this.socket = null;
       try {
@@ -253,7 +288,7 @@ export class SlpBrowser extends EventEmitter {
       return;
     }
     if (this.multicast) {
-      for (const address of localAddresses()) {
+      for (const address of this.#addresses()) {
         try {
           socket.addMembership(SLP_GROUP, address);
         } catch {
@@ -262,8 +297,22 @@ export class SlpBrowser extends EventEmitter {
       }
     }
     this.#solicit();
-    this.timer = setInterval(() => this.#solicit(), this.solicitMs);
+    this.timer = setInterval(() => {
+      this.#age();
+      this.#solicit();
+    }, this.solicitMs);
     this.timer.unref?.();
+  }
+
+  /** Forget the units not heard from lately, and say so; runs on the solicit tick as well as on each listing. */
+  #age() {
+    const now = Date.now();
+    for (const [ip, unit] of this.units) {
+      if (now - unit.lastSeen > this.listedMs) {
+        this.units.delete(ip);
+        this.emit('lost', unit);
+      }
+    }
   }
 
   #solicit() {
@@ -278,7 +327,7 @@ export class SlpBrowser extends EventEmitter {
       }
     }
     if (!this.multicast) return;
-    for (const address of localAddresses()) {
+    for (const address of this.#addresses()) {
       try {
         socket.setMulticastInterface(address);
         socket.send(request, SLP_PORT, SLP_GROUP);
@@ -300,13 +349,7 @@ export class SlpBrowser extends EventEmitter {
 
   /** Units heard from recently. */
   devices() {
-    const now = Date.now();
-    for (const [ip, unit] of this.units) {
-      if (now - unit.lastSeen > this.listedMs) {
-        this.units.delete(ip);
-        this.emit('lost', unit);
-      }
-    }
+    this.#age();
     return [...this.units.values()];
   }
 
@@ -332,5 +375,8 @@ export class SlpBrowser extends EventEmitter {
     } catch {
       // already closed
     }
+    // a stopped browse has no current picture: what it heard before is not reported lost when it next
+    // runs, and every unit is found afresh
+    this.units.clear();
   }
 }

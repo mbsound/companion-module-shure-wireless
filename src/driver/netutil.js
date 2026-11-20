@@ -35,19 +35,36 @@ export function localInterfaces() {
 export const localAddresses = () => localInterfaces().map((i) => i.address);
 
 /**
- * The local interface that reaches `host`: the one whose subnet holds it, else
- * (a unit on a link-local or unrouted address) the first interface on the same
- * kind of network, else the first interface there is.
+ * The interface a setting names, by interface name (`en0`) or by its IPv4 address, or null when
+ * nothing (or nothing present) is named. Case does not matter for the name.
  */
-export function localInterfaceFor(host) {
+export function resolveInterface(selector) {
+  const text = String(selector ?? '').trim();
+  if (!text) return null;
+  const interfaces = localInterfaces();
+  if (isIpv4(text)) return interfaces.find((i) => i.address === text) ?? null;
+  return interfaces.find((i) => i.name.toLowerCase() === text.toLowerCase()) ?? null;
+}
+
+/**
+ * The local interface that reaches `host`: `preferred` (the adapter the plugin is set to use) when
+ * its subnet holds the unit, else the first interface whose subnet does, else `preferred` anyway,
+ * else (a unit on a link-local or unrouted address) the first interface on the same kind of
+ * network, else the first interface there is. On a wide subnet (a /14, say) a computer's Wi-Fi and
+ * wired port often both hold the unit's address, which is why the chosen adapter is asked first.
+ */
+export function localInterfaceFor(host, preferred = null) {
   const interfaces = localInterfaces();
   if (host === '127.0.0.1') return { name: 'lo0', address: '127.0.0.1', netmask: '255.0.0.0' };
   const target = toInt(host);
-  const onSubnet = interfaces.find((i) => {
+  const holds = (i) => {
     const mask = toInt(i.netmask);
     return (toInt(i.address) & mask) === (target & mask);
-  });
+  };
+  if (preferred?.netmask && holds(preferred)) return preferred;
+  const onSubnet = interfaces.find(holds);
   if (onSubnet) return onSubnet;
+  if (preferred) return preferred;
   const linkLocal = host.startsWith('169.254.');
   return (
     interfaces.find((i) => i.address.startsWith('169.254.') === linkLocal) ?? interfaces[0] ?? null

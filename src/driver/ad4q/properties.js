@@ -383,7 +383,8 @@ export const CHANNEL_PROPS = Object.freeze([
   { key: 'name', obj: CH.NAME, decode: decodeString },
   // ANX4 only (`anx4: true`): an AD4Q/AD4D refuses these, so they are not asked of one
   { key: 'band', obj: CH.BAND, decode: (v) => { const s = decodeString(v); return isBandName(s) ? s : null; }, nullable: true, anx4: true },
-  ...Object.entries(SYNC_PRESETS).map(([key, p]) => ({ key, obj: p.obj, decode: (v) => syncLabel(key, v), anx4: true })),
+  // read on the refresh, not subscribed (`subscribe: false`): 13 objects per channel that change only from Workbench
+  ...Object.entries(SYNC_PRESETS).map(([key, p]) => ({ key, obj: p.obj, decode: (v) => syncLabel(key, v), anx4: true, subscribe: false })),
   { key: 'gainDb', obj: CH.GAIN_DB, decode: (v) => (v.length === 1 ? decodeInt(v) : null) },
   { key: 'muted', obj: CH.MUTE, decode: decodeBool },
   { key: 'overloadHold', obj: CH.OVERLOAD_HOLD, decode: decodeBool },

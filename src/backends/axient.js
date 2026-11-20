@@ -13,6 +13,7 @@
 import { Ad4qDevice, WriteRefused } from '../driver/ad4q/device.js'
 import { SlpBrowser } from '../driver/acn/slp.js'
 import { CommandClient, COMMAND_PORT, STATUS_PROPS, TX_PROPS } from '../driver/cmdstrings/client.js'
+import { resolveInterface } from '../driver/netutil.js'
 import {
 	ANTENNA_SELECTIONS,
 	TALK_OUTPUTS,
@@ -47,6 +48,8 @@ const COMMAND_RETRY_MAX_MS = 60_000
  */
 const LOSS_WINDOW_MS = 10 * 60_000
 const STAND_DOWN_MS = 15 * 60_000
+/** Losses this close together are one event (a dropped session and a read round that then goes unanswered). */
+const LOSS_DEBOUNCE_MS = 5000
 const DISCOVERY_MS = 6000
 const RECONNECT_MIN_MS = 2000
 const RECONNECT_MAX_MS = 30_000
@@ -97,9 +100,24 @@ const TRANSMISSION_MODE_TOKEN = Object.freeze({
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
-const isPrintable = (s) => /^[\x20-\x7e]*$/.test(s)
 
-/** Session losses by host, kept across reconnects and config changes: `{ at: [ms...], until: ms }`. */
+/**
+ * A name as the unit can hold it, as the reference adapter makes it: printable ASCII, at most `max`
+ * characters. Accented letters lose their accents, typographic quotes and dashes become the plain
+ * ones, and what is left over is dropped: clamped, not refused.
+ */
+export const asciiName = (text, max) =>
+	String(text)
+		.normalize('NFKD')
+		.replace(/[\u0300-\u036f]/g, '')
+		.replace(/[\u2018\u2019\u201a\u201b\u2032]/g, "'")
+		.replace(/[\u201c\u201d\u201e\u201f\u2033]/g, '"')
+		.replace(/[\u2010-\u2015\u2212]/g, '-')
+		.replace(/\u2026/g, '...')
+		.replace(/[^\x20-\x7e]/g, '')
+		.slice(0, max)
+
+/** Session losses by host, kept across reconnects and config changes: `{ at: [ms...], until: ms, lastAt: ms }`. */
 const losses = new Map()
 
 /** One SLP browse per process, shared by every connection in it (UDP 8427 is a shared port). */
@@ -119,14 +137,14 @@ export class AxientBackend {
 	 * @param {{
 	 *   api: import('../internalAPI.js').default,
 	 *   model: { id: string, channels: number },
-	 *   config: { host: string, port?: number|string, meteringOn?: boolean, meteringInterval?: number, acnCid?: string },
+	 *   config: { host: string, port?: number|string, meteringOn?: boolean, meteringInterval?: number, acnCid?: string, networkInterface?: string },
 	 *   log: (level: string, message: string) => void,
 	 *   status: (status: string, message?: string) => void,
 	 *   checkFeedbacks: (...ids: string[]) => void,
 	 *   saveCid?: (cid: string|null) => void,
 	 *   channelCount?: (n: number) => void,
 	 *   driver?: object,
-	 *   timings?: { lossWindowMs?: number, standDownMs?: number },
+	 *   timings?: { lossWindowMs?: number, standDownMs?: number, lossDebounceMs?: number },
 	 * }} ctx  `driver` overrides the device options (tests: a simulator's port, cid and timings)
 	 */
 	constructor(ctx) {
@@ -149,7 +167,12 @@ export class AxientBackend {
 		this.timers = { refresh: null, meters: null, reconnect: null, commandRetry: null }
 		this.reconnectMs = RECONNECT_MIN_MS
 		this.commandRetryMs = null
-		this.timings = { lossWindowMs: LOSS_WINDOW_MS, standDownMs: STAND_DOWN_MS, ...ctx.timings }
+		this.timings = {
+			lossWindowMs: LOSS_WINDOW_MS,
+			standDownMs: STAND_DOWN_MS,
+			lossDebounceMs: LOSS_DEBOUNCE_MS,
+			...ctx.timings,
+		}
 		this.closed = false
 	}
 
@@ -221,10 +244,17 @@ export class AxientBackend {
 		let unit = null
 		try {
 			const cid = this.#storedCid()
-			const options = { host: this.host, log: (l, m) => this.log(l, m), licensed: this.licensed }
+			const options = {
+				host: this.host,
+				log: (l, m) => this.log(l, m),
+				licensed: this.licensed,
+				preferredInterface: this.#preferredInterface(),
+			}
 			if (this.channels) options.channels = this.channels
 			if (cid) options.cid = cid
-			else options.browser = browserFor(this.host, (l, m) => this.log(l, m))
+			// with a stored id the browse is the fallback: a unit that does not answer to it is looked up by
+			// its advert, and the frame advertising at the address now is joined (a replaced receiver)
+			if (!cid || !this.ctx.driver) options.browser = browserFor(this.host, (l, m) => this.log(l, m))
 			// a unit found by SLP gives its session port in the advert; one with a stored id uses the default
 			unit = new Ad4qDevice({ ...options, ...(this.ctx.driver ?? {}) })
 			unit.on('prop', (change) => this.#applyProp(change))
@@ -249,7 +279,7 @@ export class AxientBackend {
 				await unit.close()
 				return
 			}
-			if (!cid && unit.cid) this.ctx.saveCid?.(unit.cid)
+			if (unit.cid && unit.cid !== cid) this.ctx.saveCid?.(unit.cid)
 			this.#checkModel(unit)
 			if (this.licensed) {
 				this.channels = unit.channels
@@ -285,6 +315,22 @@ export class AxientBackend {
 			this.ctx.status('connection_failure', err.message)
 			this.#scheduleReconnect()
 		}
+	}
+
+	/**
+	 * The "Network adapter" setting: the adapter asked first for the session when its subnet holds the
+	 * unit (a computer's Wi-Fi and wired port often both do, on a wide subnet), and the one used when
+	 * none does. Blank leaves the choice to the subnets; a name not present is warned about once.
+	 */
+	#preferredInterface() {
+		const wanted = String(this.ctx.config.networkInterface ?? '').trim()
+		if (!wanted) return null
+		const found = resolveInterface(wanted)
+		if (!found && this.warnedInterface !== wanted) {
+			this.warnedInterface = wanted
+			this.log('warn', `the network adapter "${wanted}" is not present on this computer; choosing by subnet instead`)
+		}
+		return found
 	}
 
 	#storedCid() {
@@ -335,7 +381,9 @@ export class AxientBackend {
 
 	/** Record a lost session; returns when a stand-down ends, if this loss starts one. */
 	#recordLoss(now = Date.now()) {
-		const entry = losses.get(this.host) ?? { at: [], until: 0 }
+		const entry = losses.get(this.host) ?? { at: [], until: 0, lastAt: 0 }
+		if (entry.lastAt && now - entry.lastAt < this.timings.lossDebounceMs) return entry.until > now ? entry.until : null
+		entry.lastAt = now
 		entry.at = entry.at.filter((t) => now - t < this.timings.lossWindowMs)
 		entry.at.push(now)
 		if (entry.at.length >= 2) {
@@ -375,6 +423,7 @@ export class AxientBackend {
 			// every reply also arrives as a 'prop' event and is applied there; only the ANX4's
 			// string-keyed values (antenna pair, transmission mode) come back in the result alone
 			const all = await unit.readAll()
+			if (this.closed || unit !== this.unit) return
 			const answered =
 				Object.keys(all.device).length + Object.values(all.channels).reduce((n, c) => n + Object.keys(c).length, 0)
 			if (answered === 0) {
@@ -588,6 +637,8 @@ export class AxientBackend {
 		const slotChannels = showLink ? Math.min(channels, this.licensed ? SHOWLINK_MAX_CHANNELS : channels) : 0
 		const unbatched = new Set()
 		for (let c = 1; c <= channels && !this.closed; c += 1) {
+			// one channel's silence does not cost the rest their read, but a dropped port ends it
+			if (!client.connected || this.commands !== client) return
 			for (const prop of channelProps) await tolerant(() => client.query(c, prop))
 			if (c > slotChannels) continue
 			let status = {}
@@ -638,7 +689,8 @@ export class AxientBackend {
 		this.commandsLive = false
 		if (!client) return
 		if (client.connected) {
-			// the unit keeps streaming SAMPLE lines to a client until its rate goes back to 0
+			// the unit keeps streaming SAMPLE lines to a client until its rate goes back to 0. One at a time,
+			// as every exchange on this port is, under one deadline for them all
 			const channels = this.channels ?? this.ctx.model.channels
 			const off = (async () => {
 				for (let c = 1; c <= channels; c += 1) await client.setMeterRate(c, 0).catch(() => {})
@@ -716,25 +768,15 @@ export class AxientBackend {
 	}
 
 	setChannelName(channel, name) {
-		const text = String(name)
-		if (!isPrintable(text)) {
-			this.log('warn', 'channel name: printable ASCII only')
-			return Promise.resolve()
-		}
-		// the unit holds eight characters; a longer name is cut, not refused
-		const value = text.slice(0, CHANNEL_NAME_MAX)
+		// the unit holds eight ASCII characters; a longer name is cut and accents are dropped, not refused
+		const value = asciiName(name, CHANNEL_NAME_MAX)
 		return this.#write(`channel name "${value}"`, async (unit) => {
 			for (const c of this.#targets(channel)) await unit.setChannel(c, 'name', value)
 		})
 	}
 
 	setDeviceName(name) {
-		const text = String(name)
-		if (!isPrintable(text)) {
-			this.log('warn', 'device name: printable ASCII only')
-			return Promise.resolve()
-		}
-		const value = text.slice(0, DEVICE_NAME_MAX)
+		const value = asciiName(name, DEVICE_NAME_MAX)
 		return this.#write(`device name "${value}"`, (unit) => unit.setDevice('name', value))
 	}
 
