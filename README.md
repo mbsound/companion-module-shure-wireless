@@ -2,6 +2,9 @@
 
 This is an enhanced Bitfocus Companion module for monitoring and controlling Shure professional wireless microphone systems and in-ear monitoring systems (including PSM1000) over an IP network.
 
+It is a community fork of the bundled Shure Wireless module, originally written by Joseph Adams and
+Keith Rocheck, who do not maintain this fork. Report issues with it here, not upstream.
+
 ---
 
 ## What This Module Can Do
@@ -62,6 +65,34 @@ reason is not reconnected for fifteen minutes; the connection status says so.
 transmission mode, band, encryption, Quadversity) are shown as variables and feedbacks but cannot be
 changed from Companion. The `set_transmission_mode` action that earlier versions offered for AD
 models has been removed for that reason; buttons using it need to be reassigned.
+
+---
+
+## Module ID and Moving From Earlier Fork Builds
+
+This fork is published under its own module id, `shure-wireless-mbsound`. The Shure Wireless module
+bundled with Companion uses `shure-wireless`, so the two now install side by side and Companion no
+longer has to choose between them. In the connection list this one shows as
+"shure-wireless (EXPERIMENTAL FORK)".
+
+Builds up to and including 3.0.0-experimental.3 used the id `shure-wireless`. Connections made with
+those builds are stored against that id, so after you install this version:
+
+- **Existing connections stay on `shure-wireless`.** Once the old fork build is removed, Companion
+  runs them with the bundled module. They keep their settings, but anything only this fork provides
+  (the ACN driver for AD4D/AD4Q/ANX4, PSM1000, SLX-D+, talk switch routing, tone generator) stops
+  working on them.
+- **To move a connection to this module**, add a new connection with "shure-wireless (EXPERIMENTAL
+  FORK)", enter the same receiver IP and model, and reassign the buttons and triggers that used the
+  old connection. Actions, feedbacks and variables keep the same names, so a button only needs its
+  connection changed, but Companion does not do that for you.
+- **For many buttons**, export your configuration, change the module id of the Shure connections in
+  the exported file from `shure-wireless` to `shure-wireless-mbsound`, and import it again. Back up
+  first and check the result before a show.
+
+The fork deliberately does not list `shure-wireless` under `legacyIds`. Doing so would make
+Companion move every `shure-wireless` connection to this fork, including those of people who want to
+stay on the bundled module.
 
 ---
 

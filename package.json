@@ -1,5 +1,5 @@
 {
-	"name": "shure-wireless",
+	"name": "shure-wireless-mbsound",
 	"version": "3.0.0-experimental.3",
 	"main": "src/index.js",
 	"type": "module",
