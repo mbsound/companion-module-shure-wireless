@@ -351,7 +351,7 @@ ANX4 expands the supported transmitter family to include the Shure **AD3** (stan
 ## Installing and Releasing
 
 Built packages are not committed to this repository. Download the `shure-wireless-<version>.tgz`
-for the version you want from the [Releases page](https://github.com/mbsound/companion-module-shure-wireless/releases)
+for the version you want from the [Releases page](https://github.com/mbsound/companion-module-shure-wireless-mbsound/releases)
 and import it in Companion (Settings > Modules > Import module package).
 
 To build a package yourself, run `yarn install` and then `yarn package`. The `.tgz` is written to

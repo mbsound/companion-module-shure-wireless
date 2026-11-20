@@ -6,8 +6,8 @@
 	"version": "3.0.0-experimental.3",
 	"isPrerelease": true,
 	"license": "MIT",
-	"repository": "git+https://github.com/mbsound/companion-module-shure-wireless.git",
-	"bugs": "https://github.com/mbsound/companion-module-shure-wireless/issues",
+	"repository": "git+https://github.com/mbsound/companion-module-shure-wireless-mbsound.git",
+	"bugs": "https://github.com/mbsound/companion-module-shure-wireless-mbsound/issues",
 	"maintainers": [
 		{
 			"name": "Matt (mbsound)",

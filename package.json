@@ -11,7 +11,7 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/mbsound/companion-module-shure-wireless.git"
+		"url": "git+https://github.com/mbsound/companion-module-shure-wireless-mbsound.git"
 	},
 	"license": "MIT",
 	"dependencies": {
